@@ -21,14 +21,16 @@ for src in glob.glob('scripts/*'):
     open(src, 'w').write(text)
     
 setup(name = 'HiCHap',
-	  version = HiCHap.__version__,
-	  author = HiCHap.__author__,
-	  url = 'https://github.com/Prayforhanluo/HiCHap_master',
-	  author_email = 'hluo_lc@outlook.com',
-	  description = 'A software for haplotype Hi-C analysis',
-	  long_description = read('README.rst'),
-	  scripts = glob.glob('scripts/*'),
-	  packages = find_packages())
+      version = HiCHap.__version__,
+      author = HiCHap.__author__,
+      url = 'https://github.com/Prayforhanluo/HiCHap_master',
+      author_email = 'hluo_lc@outlook.com',
+      description = 'A Software to Explore Haplotype 3D Structure of Chromatin.',
+      long_description = read('README.rst'),
+      long_description_content_type = 'text/x-rst',
+      scripts = glob.glob('scripts/*'),
+      packages = find_packages()
+      )
       
 
 print "Fix the pkg_resources.ResolutionError::"
