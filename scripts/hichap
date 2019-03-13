@@ -1,0 +1,1185 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb 28 11:21:47 2018
+
+@author: han-luo
+"""
+from __future__ import division
+import os, sys, argparse, logging, logging.handlers, traceback, multiprocessing, time
+
+def getargs():
+    """
+        Construct an ArgumentParser object for command-line arguments.
+    """
+    parser = argparse.ArgumentParser(description="""This software is a comprehensive Python package for Hi-C data analysis.
+                                                 The non-haplotype Hi-C pipeline and haplotype pipeline are both available.
+                                                 Try to get more helpful information by README.md file.""",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    parser.add_argument('-v', '--version', action = 'version', version = '%(prog)s 0.6.1',
+                        help = 'Print version number and exit')
+    
+    ## All
+    common = argparse.ArgumentParser(add_help = False)
+    common.add_argument('-log','--logfile', default = 'HapHiC.log', 
+                        help = 'log file')
+    common.add_argument('-w','--workspace', default = 'haphic_workspace',
+                        help = """workspace for haphic pipeline. haphic will
+                        search the Input file from the prior Output for posterior sub-command.
+                        If U move the Output results or want to self-defined the Output results.
+                        Please,Use the related parameters.""")
+    
+    ## Sub-commands
+    subparser = parser.add_subparsers(title = 'sub-commands',
+                                      description=''' ''',
+                                      dest = 'subcommand')
+    
+    ##Rebuild Genome
+    RebuildGenome = subparser.add_parser('rebuildG',
+                                         parents = [common],
+                                         help = """Build the genome Index, extract genome size and enzyme
+                                         fragment locations.""",
+                                         description = """For haplotype Hi-C pipeline,Replacing the SNP site and Output Allelic Genome
+                                         This process causes some Memory (Depends on genome size) because
+                                         Maternal Genome and Paternal Genome will be rebuild parallelly.Build
+                                         M/P genome index, create genome size files and
+                                         find the enzyme fragment locations.
+                                         For non-haplotype Hi-C pipeline, Building the genome index, create
+                                         genome size files and find the enzyme fragment locations.
+                                         """,
+                                         epilog = """ After this command, a Genome Folder contains the
+                                         genome Index, genome size file and fragments locations file will be created 
+                                         under the current workspace directory or self-defined
+                                         directory""",
+                                         formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+#    RebuildGenome.add_argument('-F','--genomeFolder',
+#                               help = 'Folder To Original genome')
+    
+    RebuildGenome.add_argument('-N','--NonAllelic',action = 'store_true', default = False,
+                               help = 'if set build the raw genome Index.')
+    
+    RebuildGenome.add_argument('-g','--genome',
+                               help = 'Path to Genome file. eg : mm10.fa')
+    
+    RebuildGenome.add_argument('-S','--Snp',default = None,
+                               help = """Path to Defined Snps file.
+                                           Format was required.""")
+
+    RebuildGenome.add_argument('-e', '--enzyme',default = 'MboI',
+                               help = """enzymeName U can use the usual enzyme Name like MboI HindIII 
+                               DpnII (...) as input. Also U can use the enzyme sequence as input,and - index
+                               the cut site like A-AGCTT  -GATC and so on""")                           
+    RebuildGenome.add_argument('-t','--threads',type = int,default = 1,
+                               help = 'threads number')
+                               
+    RebuildGenome.add_argument('-o','--out',default = None,
+                               help = """self-defined Output directory if U want. 
+                               if not None, automatic Output will not build under the
+                               workspace directory""")
+    
+    ## Rebuild_Fastq
+    RebuildFastq = subparser.add_parser('rebuildF',
+                                        parents = [common],
+                                        help = """Chunk the fastq files. """,
+                                        description = """Chunking the raw fastq file by a given step.""",
+                                        epilog = """After this command, a fastqchunks folder contains 
+                                        all the chunks will be created under the workspace directory or self-defined
+                                        directory""",
+                                        formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    
+    RebuildFastq.add_argument('-1','--fastq1',
+                              help = 'Raw FASTA Data (R1).')
+    
+    RebuildFastq.add_argument('-2','--fastq2',
+                              help = 'Raw FASTA Data (R2).')
+    
+    RebuildFastq.add_argument('-c','--chunksize',type = int,default = 4000000,
+                              help = """Chunk Size for a single chunk. 
+                                        It should not be set to a small number. 
+                                        We suggest the 4000000 is the smallest number.""")
+    
+    RebuildFastq.add_argument('-t','--threads',type = int,default = 1,
+                              help = """threads number. We suggest 2 is the 
+                                          best and most stable choice.""")
+    
+    RebuildFastq.add_argument('-o','--out',default = None,
+                              help = """self-defined Output directory if U want. 
+                               if not None, automatic Output will not build under the
+                               workspace directory""")
+
+    
+    ## GlobalMapping
+    HapM = subparser.add_parser('GlobalMapping',
+                                parents = [common],
+                                help = """Map the raw chunked reads to the genome.""",
+                                description = """A parallel mapping work for the two side HiC data to 
+                                genome.We use the Single side mapping work by bowtie2.Usually, 
+                                HiC data is very big, So mapping will spend a relatively long time.""",
+                                epilog = """After this command, a Global_bams folder contains BAM files of
+                                each side of HiC molecules is created under current working directory or
+                                self-defined Folder of the related parameters""",
+                                formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    
+    # I/O Path for mapping
+    HapM_IO = HapM.add_argument_group(title = 'Mapping self-defined I/0 Stream : ')
+    HapM_IO.add_argument('-b', '--bowtie2Path',
+                      help = 'Path to bowtie2 executable program file')
+    
+    HapM_IO.add_argument('-f', '--fastq',default = None,
+                      help = '''Rebuilding FASTA Folder.
+                      HapHiC update Output Folder.If self-defined OutPath not set in rebuild,
+                      haphic will search the current workspace. If self-defined OutPath set,pls give
+                      the correct fastq Path.''')
+    
+    HapM_IO.add_argument('-i','--bowtieIndex', nargs = '+',
+                      help = '''Path to the bowtie2 genome index build by HapHiC rebuild.
+                      bowtieIndex can be one or two.
+                      For only one input, Non-Allelic mapping task will start. All chunks fq will
+                      be mapped to this genome Index. eg: -i(--bowtieIndex) /public/home/genome/mm10.
+                      For two inputs, Allelic mapping task will start. On this hand, All chunks fq 
+                      will be mapped to both two genome.
+                      bowtieIndex contains two parts Maternal and Paternal Index
+                      bowtieIndex is ordered. first is Maternal, second is Paternal like:
+                      -i(--bowtieIndex) /public/home/genome/Maternal
+                      /pubilc/home/genome/Paternal''')
+                      
+    HapM_IO.add_argument('-o','--out',default = None,
+                      help = 'self-defined Output Folder')
+    
+    HapM_Mode = HapM.add_argument_group(title = 'Mapping mode for different computing system : ')
+    
+    HapM_Mode.add_argument('-m','--mode',choices = ['PBS', 'WS'],default = 'WS',
+                      help = """ Mapping task mode for different computing system.
+                      For PBS, We will submit the chunk mapping sub-task into compute nodes 
+                      by PBS scripts. You can set the max number of chunks for sub-tasks 
+                      and number of cores for each sub-task.
+                      For WS, We will submit in automatic way of system.
+                      We will assign the threads number U set equally to each mapping task.
+                      
+                      Notice : For a chunk pair, We have four single mapping task 
+                      with Allelic Mapping. Two single mapping task with NonAllelic Mapping.
+                      """)
+    
+    HapM_Mode.add_argument('-wt','--WSthreads',type = int, default = 16,
+                      help = """ If Mapping task mode is WS. We should set the total number of 
+                      cores for Parallel mapping. We will mapping chunk pairs one by one.
+                      We will assign the threads eqaully to the four mapping task.
+                      So U need make sure the number of threads is the integer number of 4.
+                      eg (8,16,24)""")
+                      
+    HapM_Mode.add_argument('-pt','--PBSthreads',type = int, nargs = '+',default = [20, 4],
+                      help = """ If Mapping task mode is PBS. We should set the max number of
+                      chunk pairs for Parallel mapping. Notice that We have four mapping task
+                      for a chunk pair that is a meta chunk will be aligned twice.
+                      first number is the number of parallel tasks,second is the number of
+                      threads for each task .eg : if We set -pt 20 4. 
+                      We will start 20 alignment task parallelly by independent PBS scripts 
+                      for each single alignment. We will use 4 threads for bowtie2.""")
+    HapM_Mode.add_argument('-mem','--memory',type = int,default = 10,
+                           help = """Memory resource for each sub-mapping task(PBS)
+                           It is related to genome Size. Big genome need more memory for Index array.
+                           unit : (G)
+                           default : 10G for Mouse/human genome.""")
+    
+    HapM_Mode.add_argument('-PBSlog','--PBSlogfile',default = None,
+                           help = """ Folder for PBS tasks out stream and error stream.
+                           If self-defined PBSlog Path not been set. We will put logs into 
+                           workspace/PBSlog .""")
+
+    ## Resue Reads
+    Resue = subparser.add_parser('Rescue',
+                                 parents = [common],
+                                 help = """ Run rescue model for unmapped reads.""",
+                                 description = """For each mapping results of GlobalMapping, if 
+                                 it is unmapped reads, We will search the ligation site on the reads
+                                 if ligation site was found, we will cut the Ligation site and build 
+                                 all candidata contact situations.""",
+                                 epilog = """After this command, a RescueFatstq folder contains the cutted fastq
+                                  reads is created under the current working directory or self-defined
+                                  Folder of the related parameters""",
+                                 formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+                                 
+    Resue.add_argument('-b','--bam',default = None,
+                       help = """GlobalMapping results of haphic. """)
+    
+    Resue.add_argument('-e','--enzyme',default = 'MboI',
+                       help = """enzymeName U can use the usual enzyme Name like MboI HindIII 
+                               DpnII (...) as input. Also U can use the enzyme sequence as input,and - index
+                               the cut site like A-AGCTT  -GATC and so on""")
+    
+    Resue.add_argument('-t','--threads',default = 1,type = int,
+                       help = """threads number. """)
+                       
+    Resue.add_argument('-N','--NonAllelic',action = 'store_true',default = False,
+                       help = """ if set, Non-Allelic pipeline works.""")
+    
+    Resue.add_argument('-o','--out',default = None,
+                       help = """ self-defined Output Folder. """)
+    
+    ## ReMapping
+    ReMap = subparser.add_parser('ReMapping',
+                                  parents = [common],
+                                  help = """ReMapping the Resue reads to genome, Paramenters
+                                  are the same as GlobalMapping""",
+                                  description = """A Parallel mapping work for two side resued HiC data.
+                                  We use the Single side mapping work by bowtie2.""",
+                                  epilog = """After this command, a ReMap_bams folder contains BAM files of
+                                  rescue reads will created under workspace directory or self-defined
+                                  folder of the related parameters.""",
+                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    
+    # I/O Path for mapping
+    ReMap_IO = ReMap.add_argument_group(title = 'ReMapping self-defined I/O Stream : ')
+    ReMap_IO.add_argument('-b','--bowtie2Path',
+                          help = 'Path to bowtie2 executable program file')
+    
+    ReMap_IO.add_argument('-f','--fastq',default = None,
+                          help = """Rescued FASTQ Floder.
+                          hichap Rescue OutPut Folder.If self-defined OutPath not set in Rescue,
+                          hichap will search the current workspace. If self-defined OutPath set,
+                          pls give the correct fastq Path.""")
+    
+    ReMap_IO.add_argument('-i','--bowtieIndex',nargs = '+',
+                          help = '''Path to the bowtie2 genome index build by HapHiC rebuild.
+                          bowtieIndex can be one or two.
+                          For only one input, Non-Allelic Remapping task will start. All  fq will
+                          be Remapped to this genome Index. eg: -i(--bowtieIndex) /public/home/genome/mm10.
+                          For two inputs, Allelic Remapping task will start. On this hand, All fq 
+                          will be Remapped to Allel genome.
+                          bowtieIndex contains two parts Maternal and Paternal Index
+                          bowtieIndex is ordered. first is Maternal, second is Paternal like:
+                          -i(--bowtieIndex) /public/home/genome/Maternal
+                          /pubilc/home/genome/Paternal''')
+    
+    ReMap_IO.add_argument('-o','--out',default = None,
+                          help = 'Self-defined Output Folder')
+    
+    ReMap_Mode = ReMap.add_argument_group(title = 'Mapping mode for different computing system : ')
+    
+    ReMap_Mode.add_argument('-m','--mode',choices = ['PBS','WS'],default = 'WS',
+                            help = """ Mapping task mode for different computing system.
+                            For PBS, We will submit the chunk mapping sub-task into compute nodes 
+                            by PBS scripts. You can set the max number of chunks for sub-tasks 
+                            and number of cores for each sub-task.
+                            For WS, We will submit in automatic way of system.
+                            We will assign the threads number U set equally to each mapping task.
+                      
+                            Notice : For a chunk pair, We have four single mapping task 
+                            with Allelic Mapping. Two single mapping task with NonAllelic Mapping.
+                            """ )
+    
+    ReMap_Mode.add_argument('-wt','--WSthreads',type = int, default = 16,
+                            help = """ If Mapping task mode is WS. We should set the total number of 
+                            cores for Parallel mapping. We will mapping chunk pairs one by one.
+                            We will assign the threads eqaully to the four mapping task.
+                            So U need make sure the number of threads is the integer number of 4.
+                            eg (8,16,24)""")
+    
+    ReMap_Mode.add_argument('-pt','--PBSthreads',type = int,nargs = '+', default = [20,4],
+                            help = """ If Mapping task mode is PBS. We should set the max number of
+                            chunk pairs for Parallel mapping. Notice that We have four mapping task
+                            for a chunk pair that is a meta chunk will be aligned twice.
+                            first number is the number of parallel tasks,second is the number of
+                            threads for each task .eg : if We set -pt 20 4. 
+                            We will start 20 alignment task parallelly by independent PBS scripts 
+                            for each single alignment. We will use 4 threads for bowtie2.""")
+
+
+    ReMap_Mode.add_argument('-mem','--memory',type = int,default = 10,
+                            help = """Memory resource for each sub-mapping task(PBS)
+                            It is related to genome Size. Big genome need more memory for Index array.
+                            unit : (G)
+                            default : 10G for Mouse/human genome.""")
+    
+    ReMap_Mode.add_argument('-PBSlog','--PBSlogfile',default = None,
+                            help = """ Folder for PBS tasks out stream and error stream.
+                            If self-defined PBSlog Path not been set. We will put logs into 
+                            workspace/PBSlog .""")
+
+
+    ## bamProcess
+    bamP = subparser.add_parser('bamProcess',
+                                parents = [common],
+                                help = """Integrate all the mapping informations""",
+                                description = """We will extract the helpful information
+                                from all the bams that generated by GlobalMapping and ReMapping.
+                                Meanwhile, fragment Mapping and SNP site counting will finish for each pairs.
+                                Beacause of the independence of each chunk, more threads more benifits.""",
+                                epilog = """After this command, A UniqRawBed folder contains all helpful
+                                mapping infomation of each chunks will created under current working
+                                directory or self-defined folder of the related parameters.""",
+                                formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    
+    bamP.add_argument('-N','--NonAllelic',action = 'store_true', default = False,
+                      help = 'if set, running Non-Allelic HiC process')
+    
+    bamP.add_argument('-gb','--Globalbam',default = None,
+                      help = """bam Folder of GlobalMapping results, if None
+                              We will search the results in workspace""")
+    bamP.add_argument('-rb','--Rebam',default = None,
+                      help = """bam Folder of ReMapping results, if None
+                              We will search the results in workspace""")
+
+    bamP.add_argument('-f','--fragments',nargs = '+',
+                      help = """ Fragments file created by rebuild command.
+                              fragments can be one or two.
+                              For only one input, Non-Alllelic processing task will start.
+                              eg : -f(--fragments) /pubilc/home/genome/GATC_mm10_fragments.txt
+                              For two inputs, Allelic processing task will start.
+                              The parameter is ordered.Maternal Fragment first,
+                              Paternal Fragment sencond.eg : 
+                              /public/home/genome/Maternal/GATC_Maternal_fragments.txt
+                              /pubilc/home/genome/Paternal/GATC_Paternal_fragments.txt
+                              if None,  We will seach the results in workspace""")
+    
+    bamP.add_argument('-s','--snp',default = None,
+                      help = """ Temp file of SNP generated by rebuild module.U can set
+                      the temp file path, if not set, We will search the file under workspace
+                      """)
+    
+    bamP.add_argument('-o','--out',default = None,
+                      help = 'self-defined Output Folder')
+    
+    bamP.add_argument('-t','--threads',type = int,default = 1,
+                      help = 'threads number')
+    
+    bamP.add_argument('--rfo',action = 'store_true',default = False,
+                      help = """read friendly open, Filtered Unique Reads friendly.""")
+    ## Filtering
+    Filter = subparser.add_parser('filtering',
+                                  parents = [common],
+                                  help = """Hi-C filtering and Allelic assignment (if neccessary).""",
+                                  description = """Filtering include HiC-filtering and
+                                  Allelic assignment.Because of the size of HiC data and
+                                  two genome(haplotype) Mapping, this step will cost a few time.
+                                  HiC filtering will remove Duplicates, Self-Ligation
+                                  DanglingEnds, Extra-DanglingEnds and other HiC redundant data.
+                                  Allelic assignment will assign the valid HiC contact pairs to parent respectively.""",
+                                  epilog = """After this Command, A Filtered_Bed or Allelic_Bed folder contains HiC valid 
+                                  contact pairs and Allelic pairs will be created under current
+                                  workspace directory or self-defined folder of related parameters""",
+                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    
+    Filter.add_argument('-b','--bed',default = None,
+                        help = """Path to HapHiC mapping results by HapHiC bamProcess.
+                                    if None, We will Seach the workspace.""")
+    Filter.add_argument('-uc','--unclean',action = 'store_true',default = False,
+                        help = """if set this parameter, We will remain the Raw chunk bed files.
+                                  By default, We will clean the Raw chunk bed files to benefit
+                                  the Memory space.""")
+    Filter.add_argument('-N','--NonAllelic',action = 'store_true',default = False,
+                        help = 'if set, running Non-Allelic HiC filtering')
+    Filter.add_argument('-t','--threads',type = int,default = 1,
+                        help = 'Threads number.')
+    
+    Filter.add_argument('-o','--out',default = None,
+                        help = """self-defined Output Folder for Allelic results.
+                                  if None, We will save the Allelic results under the
+                                  workspace""")
+    
+    ## Binning
+    Binning = subparser.add_parser('binning',
+                                   parents = [common],
+                                   help = """Building the Interaction Matrix.""",
+                                   description = """Building Matrix, All Matrix will build contains the
+                                   Merge results of Replicates.""",
+                                   epilog = """After this command, a RawMatrix folder contains all matrix
+                                   will be created under current workspace directory or self-defined
+                                   folder of the related parameters.""",
+                                   formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    
+    Binning.add_argument('-b','--bedPath',nargs = '+',
+                         help = """ Filtered bed path by filtering module. If U want to 
+                         Merge the Replicates, U can input the several replicats path. like:
+                         -b(--bedPath) /public/home/R1 /pubilc/home/R2 .""")
+    
+    Binning.add_argument('-o','--out',default = None,
+                         help = """self-defined Output Folder,if NOT set, U will get the
+                         Matrix results in RawMatrix under workspace.""")
+    
+    Binning.add_argument('-N','--NonAllelic',action = 'store_true',default = False,
+                         help = 'if set, running Non-Allelic HiC binning')
+    
+    Binning.add_argument('-gs','--genomeSize',help = 'genomeSize file Path.')
+    
+    Binning.add_argument('-wR','--wholeRes',type = int, default = 1000000,
+                         help = 'Whole Genome Matrix Resolution. default : 1M, Unit: bp')
+    
+    Binning.add_argument('-lR','--localRes',type = int, default = 100000,
+                         help = """Local chromosome Matrix Resolution include the Raw 
+                         Matrix and Allelic Matrix. default : 100K. Unit : bp""")
+                         
+    ##Allelic_Correct
+    Allel_Cor = subparser.add_parser('correcting',
+                                      parents = [common],
+                                      help = """Correcting the Interaction Matrix""",
+                                      description = """Correcting the interaction matrix. 
+                                      we will perform ICE correction for non-haplotype interaction matrix 
+                                      and HiCHap correction for haplotype interaction matrix.""",
+                                      epilog = """After this command, a output folder contains all the
+                                      corrected matrix will be created""",
+                                      formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    Allel_Cor.add_argument('-p','--npzPath',nargs = '+',
+                           help = """Raw Matrix path. Created by binning.
+                           For -M Allelic : -p is the Binning OutPath.
+                           For -M Single -SM A -s One : -p is 3 NPZ(Raw Maternal Paternal)
+                           locations.
+                           For -M Single -SM A -s Both : -p is Both Mate Allelic NPZ location
+                           For -M Single -SM N : -p is Non-Allelic NPZ location.""")
+    
+    Allel_Cor.add_argument('-M','--Mode',choices = ['Allelic','Single'],
+                           help = """ Pattern for Correct, For Allelic, Binning OutPath
+                           is required. And haphic will correct all the Matrix in Binning
+                           OutPath.For Single, Only Correct the Matrix U interested.
+                           But SM(SingleMode) and other parameters may be needed.""")    
+    
+    Allel_Cor.add_argument('-SM','--SingleMode',choices = ['A','N'],default = 'A',
+                           help = """Pattern for Single Correcting. A for Allelic correct,
+                           We will correct the allelic Matrix, another parameter -s is needed.
+                           N for Non-Allelic, We will correct Tranditianal HiC Matrix, another
+                           parameter -c is needed.""")
+    Allel_Cor.add_argument('-s','--side',choices = ['Both','One'],default = 'One',
+                           help = """For Allelic Single Correct,
+                           One Mate Allelic Matrix, We will Correct Using Alpha Correcting.
+                           On this way -p(--npzPath) need 3 npz.Raw Maternal Paternal.eg:
+                           haphic correct -M Single -SM A -s One -p Merged_Reps_Local_Chromosome_Matrix.npz 
+                           Merged_Reps_One_Mate_Maternal.npz Merged_Reps_One_Mate_Paternal.npz -o Out.
+                           Both Mate Allelic Matrix, We will Correct Using VC Correcting
+                           """)
+    
+    Allel_Cor.add_argument('-c','--cross',choices = ['whole','local'],default = 'local',
+                           help = """ For Non-Allelic Single Correct, 
+                           Only Tranditianal Whole Matrix npz or 
+                           Local Matrix npz works,whole for Whole Genome.
+                           local for local chromosome by chromosome.""") 
+                        
+    Allel_Cor.add_argument('--sparse',action = 'store_true',default = False,
+                           help = """Save data on sparse  Matrix Way Only work for Non-Allelic
+                           Correcting.""")
+    
+    Allel_Cor.add_argument('-o','--out',help = """OutPut Path""")
+
+                                           
+    commands = sys.argv[1:]
+    if  ((not commands) or ((commands[0] in ['rebuildG','rebuildF','GlobalMapping','Rescue','ReMapping',
+                                             'bamProcess','filtering','binning','correcting'])
+        and len(commands)==1)):
+            commands.append('-h')
+    args = parser.parse_args(commands)
+    
+    return args, commands
+    
+def run():
+    args, commands = getargs()
+    
+    # function tools
+    def GetFile(Path,substr):
+        '''
+            return the file path
+        '''
+        for fil in os.listdir(Path):
+            if substr in fil:
+                return os.path.join(Path,fil)
+        return ''
+
+    if commands[-1] not in ['-h', '-v', '--help', '--version']:
+        def uncaught_exc_handler(ex_cls, ex, tb):
+            with open(args.logfile, 'a') as f:
+                traceback.print_last(file = f)
+        
+        
+        sys.excepthook = uncaught_exc_handler # Redict TraceBack
+        
+        #----------logging module----------
+        
+        # Define a special level name
+        logging.addLevelName(21, 'main')
+        # Root Logger Configuration
+        logger = logging.getLogger()
+        # Logger Level
+        logger.setLevel(21)
+        filehandler = logging.handlers.RotatingFileHandler(args.logfile,
+                                                           maxBytes = 10000000,
+                                                           backupCount = 5)
+        # Set level for Handlers
+        filehandler.setLevel(21)
+        # Customizing Formatter
+        formatter = logging.Formatter(fmt = '%(name)-20s %(levelname)-7s @ %(asctime)s: %(message)s',
+                                      datefmt = '%m/%d/%y %H:%M:%S')
+        # Unified Formatter
+        filehandler.setFormatter(formatter)
+        # Add Handlers
+        logger.addHandler(filehandler)       
+        #Logging for argument setting
+        arglist = ['# ARGUMENT LIST:',
+                   '# sub-command Name = %s ' % commands[0],
+                   '# workspace = %s ' % args.workspace]
+        
+        
+        #----------rebuild module----------
+        if commands[0] == 'rebuildG':
+                     
+            arglist.extend(['# Non-Allelic = %s ' % args.NonAllelic,
+                            '# SNP File = %s ' % args.Snp,
+                            '# Genome file = %s ' % args.genome,
+                            '# enzyme site = %s ' % args.enzyme,
+                            '# threads number = %s ' % args.threads,
+                            '# self-defined Output = %s ' % args.out])
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            threads = args.threads
+            enzyme = args.enzyme
+            
+            if args.NonAllelic:
+                
+                from HiCHap.genome import buildRawGenome
+                genome_file = args.genome
+                if args.out == None:
+                    if not os.path.exists(args.workspace):
+                        os.mkdir(args.workspace)
+                    OutFolder = os.path.join(args.workspace,'RawGenome')
+                else:
+                    OutFolder = args.out
+                
+                logging.log(21,'build genome Path : %s', OutFolder)
+                if not os.path.exists(OutFolder):
+                    os.mkdir(OutFolder)
+                
+                buildRawGenome(genome_file, enzyme, OutFolder,threads)
+                
+            else:
+                
+                from HiCHap.genome import rebuildGenome,  SNPs_integration
+                genome_file = args.genome
+                SNP_file = args.Snp
+                
+                if args.out == None:
+                    if not os.path.exists(args.workspace):
+                        os.mkdir(args.workspace)
+                    OutFolder = os.path.join(args.workspace,'genome')
+                else:
+                    OutFolder = args.out
+                logging.log(21,'rebuild OutPath : %s', OutFolder)
+                if not os.path.exists(OutFolder):
+                    os.mkdir(OutFolder)
+            
+                Maternal_O = os.path.join(OutFolder,'Maternal')
+                Paternal_O = os.path.join(OutFolder,'Paternal')
+                SNP_O = os.path.join(OutFolder,'SNPs')
+            
+                if not os.path.exists(SNP_O):
+                    os.mkdir(SNP_O)
+            
+                if not os.path.exists(Maternal_O):
+                    os.mkdir(Maternal_O)
+            
+                if not os.path.exists(Paternal_O):
+                    os.mkdir(Paternal_O)
+            
+            
+                logging.log(21,'ReBuilding Maternal and Paternal Genome ...\n')
+                logging.log(21,'!!!!!!!!!! NOTE !!!!!!!!!')
+                logging.log(21,'Make sure SNP calling based ref genome can match the %s \n',args.genome)
+            
+                SNPs_integration(SNP_file,SNP_O)
+            
+                rebuildGenome(genomePath = genome_file,
+                              snpPath = os.path.join(SNP_O,'Snps.pickle'),
+                              enzyme = enzyme,
+                              OutPath = OutFolder,
+                              threads = threads)
+            logging.log(21,'Rebuild Genome Done !')
+        
+        #------------------Chunk Fastq---------------------
+        if commands[0] == 'rebuildF':
+            from HiCHap.fastqPlus import Normal_Reads_Split
+            
+            arglist.extend(['# FASTA R1 = %s ' % args.fastq1,
+                            '# FASTA R2 = %s ' % args.fastq2,
+                            '# Chunk Size = %s' % args.chunksize,
+                            '# threads number = %s ' % args.threads,
+                            '# self-defined Output = %s ' % args.out])
+            
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            #Parameter
+            fastq1 = args.fastq1
+            fastq2 = args.fastq2
+            chunksize = args.chunksize            
+            threads = args.threads
+            
+            if args.out == None:
+                workspace = args.workspace
+                if not os.path.exists(workspace):
+                    os.mkdir(workspace)   
+                fastqchunk_O = os.path.join(args.workspace,'fastqchunks')
+            else:
+                fastqchunk_O = args.out
+
+            if not os.path.exists(fastqchunk_O):
+                os.mkdir(fastqchunk_O)
+
+            if threads >= 1:
+                pool = multiprocessing.Pool(2)
+                pool.apply_async(Normal_Reads_Split,args=(fastq1,
+                                                          fastqchunk_O,
+                                                          chunksize,
+                                                          1))
+                
+                time.sleep(1)
+                pool.apply_async(Normal_Reads_Split,args=(fastq2,
+                                                          fastqchunk_O,
+                                                          chunksize,
+                                                          2))
+                time.sleep(1)
+                pool.close()
+                pool.join()
+            else:
+                Normal_Reads_Split(fastq1,fastqchunk_O,4000000,1)
+                Normal_Reads_Split(fastq2,fastqchunk_O,4000000,2)
+            
+            
+            logging.log(21,'Rebuild Fatsq Done!')
+        
+        
+        #----------mapping module----------
+        if commands[0] == 'GlobalMapping':
+            arglist.extend(['# bowtie2Path = %s ' % args.bowtie2Path,
+                            '# bowtieIndex = %s ' % args.bowtieIndex,
+                            '# system mode = %s ' % args.mode,
+                            '# fastqFolder = %s ' % args.fastq,
+                            '# self-defined out Path = %s ' % args.out
+                            ])
+            
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            # Necessary Modules
+            from HiCHap.mapping import  WS_mapping, PBS_controller
+            
+            # Parameters
+            bowtiePath = args.bowtie2Path
+            mem = args.memory
+            if not os.path.exists(bowtiePath):
+                logging.error('bowtie2 not found.')
+                logging.error('Exit ...')
+                sys.exit(1)
+            
+            if args.fastq == None:
+                fastq_path = os.path.join(args.workspace,'fastqchunks')
+                logging.log(21,'self-defined chunk Folder not be set, Try to find at %s',fastq_path)
+                if not os.path.exists(fastq_path):
+                    logging.error('fastq chunks could not be find under workspace.')
+                    logging.error('Exit ...')
+                    sys.exit(1)
+            else:
+                fastq_path = args.fastq
+            
+    
+            bowtieIndex = args.bowtieIndex
+            
+            if args.out == None:
+                workspace = args.workspace
+                if not os.path.exists(workspace):
+                    os.mkdir(workspace)
+                    
+                out = os.path.join(args.workspace,'Global_bams')
+                if not os.path.exists(out):
+                    os.mkdir(out)
+                logging.log(21,'self-defined OutPath not be set, The Out bam will be %s',out)
+            else:
+                out = args.out
+                if not os.path.exists(out):
+                    os.mkdir(out)
+            
+            mode = args.mode
+            if mode == 'WS':
+                logging.log(21,'system mode is WS')
+                threads = args.WSthreads
+                logging.log(21,'parallel mapping threads number is %d',threads)
+                
+                WS_mapping(fastq = fastq_path,
+                           threads = threads,
+                           bowtiePath = bowtiePath,
+                           OutPath = out,
+                           bowtieIndex = bowtieIndex)
+                
+           
+            if mode == 'PBS':
+                logging.log(21,'system mode is PBS')
+                num_task = args.PBSthreads[0]
+                sub_threads = args.PBSthreads[1]
+                logging.log(21,'parallel PBS sub tasks number is %d', num_task)
+                logging.log(21,'bowtie2 threads for each sub task is %d',sub_threads)
+                
+                if args.PBSlogfile == None:
+                    workspace = args.workspace
+                    if not os.path.exists(workspace):
+                        os.mkdir(workspace)
+                    logPath = os.path.join(args.workspace,'PBSlog')
+                else:
+                    logPath = args.PBSlogfile
+                
+                if not os.path.exists(logPath):
+                    os.mkdir(logPath)
+                
+                PBS_controller(fastq = fastq_path,
+                               num_task = num_task,
+                               threads = sub_threads,
+                               OutPath = out,
+                               logPath = logPath,
+                               bowtiePath = bowtiePath,
+                               mem = mem,
+                               bowtieIndex = bowtieIndex)
+        
+        #----------Rescue module-------------
+        if commands[0] == 'Rescue':
+            arglist.extend(['# Non-Allelic = %s' % args.NonAllelic,
+                            '# bam Path = %s' % args.bam,
+                            '# enzyme site  = %s' % args.enzyme,
+                            '# threads = %s' % args.threads,
+                            '# self-defined out Path = %s' % args.out])
+            
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n'+argtxt)
+            
+            #Neccessary Modules
+            from HiCHap.fastqPlus import Cutting_Reads_To_ReMapping
+            
+            #parameters
+            
+            if args.bam == None:
+                try:
+                    bamPath = os.path.join(args.workspace,'Global_bams')
+                    if not os.path.exists(bamPath):
+                        logging.error('Can not find the Global_bams under workspace...')
+                        logging.error('Exit ...')
+                        sys.exit(1)
+                    else:
+                        logging.log(21,'default Global_bams Path : %s',bamPath)
+                except:
+                    logging.error('Can not find the Global_bams under workspace...')
+                    logging.error('Exit ...')
+                    sys.exit(1)
+            else:
+                bamPath = args.bam
+                
+            enzyme = args.enzyme
+            threads = args.threads
+            
+            if args.out == None:
+                workspace = args.workspace
+                if not os.path.exists(workspace):
+                    os.mkdir(workspace)
+                    
+                out = os.path.join(args.workspace,'RescueFastq')
+                if not os.path.exists(out):
+                    os.mkdir(out)
+                logging.log(21,'self-defined out is None, Rescue Reads Under the %s',out)
+                
+            else:
+                out = args.out
+            
+            if args.NonAllelic:
+                logging.log(21,'NonAllelic Reads rescue...')
+                Cutting_Reads_To_ReMapping(bamPath,out,enzyme,'NonAllelic',threads)
+            else:
+                logging.log(21,'Allelic Reads rescue ...')
+                Cutting_Reads_To_ReMapping(bamPath,out,enzyme,'Maternal',threads)
+                Cutting_Reads_To_ReMapping(bamPath,out,enzyme,'Paternal',threads)
+            
+            logging.log(21,'Rescue Done.')
+        
+        #----------ReMapping module-------------
+        if commands[0] == 'ReMapping':
+            arglist.extend(['# bowtie2Path = %s' % args.bowtie2Path,
+                            '# bowtieIndex = %s' % args.bowtieIndex,
+                            '# system mode = %s' % args.mode,
+                            '# fastqFolder = %s' % args.fastq,
+                            '# self-defined out Path = %s' % args.out])
+            
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            #Necessary Modules
+            from HiCHap.mapping import Rescue_WS_mapping, Rescue_PBS_controller
+            
+            # Parameters
+            bowtiePath = args.bowtie2Path
+            mem = args.memory
+            if not os.path.exists(bowtiePath):
+                logging.error('bowtie2 not found.')
+                logging.error('Exit ...')
+                sys.exit(1)
+            
+            if args.fastq == None:
+                fastq_path = os.path.join(args.workspace,'RescueFatstq')
+                logging.log(21,'self-defined chunk Folder not be set, Try to find at %s',fastq_path)
+                if not os.path.exists(fastq_path):
+                    logging.error('fastq chunks could not be find under workspace.')
+                    logging.error('Exit ...')
+                    sys.exit(1)
+            else:
+                fastq_path = args.fastq
+            
+
+            bowtieIndex = args.bowtieIndex
+            
+            if args.out == None:
+                workspace = args.workspace
+                if not os.path.exists(workspace):
+                    os.mkdir(workspace)
+                    
+                out = os.path.join(args.workspace,'ReMap_bams')
+                if not os.path.exists(out):
+                    os.mkdir(out)
+                logging.log(21,'self-defined OutPath not be set, The Out bam will be %s',out)
+            else:
+                out = args.out
+                if not os.path.exists(out):
+                    os.mkdir(out)
+            
+            mode = args.mode
+            if mode == 'WS':
+                logging.log(21,'system mode is WS')
+                threads = args.WSthreads
+                logging.log(21,'parallel mapping threads number is %d',threads)
+                
+                Rescue_WS_mapping(fastq = fastq_path,
+                                  threads = threads,
+                                  bowtiePath = bowtiePath,
+                                  OutPath = out,
+                                  bowtieIndex = bowtieIndex)
+
+            if mode == 'PBS':
+                logging.log(21,'system mode is PBS')
+                num_task = args.PBSthreads[0]
+                sub_threads = args.PBSthreads[1]
+                logging.log(21,'parallel PBS sub tasks number is %d', num_task)
+                logging.log(21,'bowtie2 threads for each sub task is %d',sub_threads)
+                
+                if args.PBSlogfile == None:
+                    workspace = args.workspace
+                    if not os.path.exists(workspace):
+                        os.mkdir(workspace)
+                        
+                    logPath = os.path.join(args.workspace,'PBSlog')
+                else:
+                    logPath = args.PBSlogfile
+                
+                if not os.path.exists(logPath):
+                    os.mkdir(logPath)
+                
+                Rescue_PBS_controller(fastq = fastq_path,
+                                      num_task = num_task,
+                                      threads = sub_threads,
+                                      OutPath = out,
+                                      logPath = logPath,
+                                      bowtiePath = bowtiePath,
+                                      mem = mem,
+                                      bowtieIndex = bowtieIndex)
+
+        
+        #----------bamProcess module---------
+        if commands[0] == 'bamProcess':
+            arglist.extend(['# Non-Allelic = %s ' % args.NonAllelic,
+                            '# threads = %s ' % args.threads,
+                            '# Global bam Path = %s ' % args.Globalbam,
+                            '# ReMapping bam Path = %s' % args.Rebam,
+                            '# Fragment = %s ' % args.fragments,
+                            '# Snp tmp file = %s' % args.snp, 
+                            '# self-defined out Path = %s ' % args.out])
+            
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            #Necessary Modules
+            from HiCHap.bamProcess import Bam_Extract
+            #parameters
+            
+            threads = args.threads
+            
+            if args.rfo:
+                level = 2
+                logging.log(21,'Unique pairs Selecting is friendly level...')
+            else:
+                level = 1
+                logging.log(21,'Unique pairs Selecting is strict level...')
+                
+            if args.Globalbam == None:
+                logging.log(21,'self-defined input is None, Search Global mapping results under workspace')
+                bam_path = os.path.join(args.workspace,'Global_bams')
+                if not os.path.exists(bam_path):
+                    logging.error('Global mapping results could not found under %s.',bam_path)
+                    logging.error('Exit ...')
+                    sys.exit(1)
+            else:
+                bam_path = args.Globalbam
+            logging.log(21,'Global mapping results Folder : %s',bam_path) 
+            
+            if args.Rebam == None:
+                logging.log(21,'self-defined input is None, Search ReMapping results under workspace')
+                Re_bam_path = os.path.join(args.workspace,'ReMap_bams')
+                if not os.path.exists(Re_bam_path):
+                    logging.error('Remapping results could not found under %s.',Re_bam_path)
+                    logging.error('Exit ...')
+                    sys.exit(1)
+            else:
+                Re_bam_path = args.Rebam
+            logging.log(21,'ReMapping results Folder : %s',Re_bam_path)
+            
+            if args.out == None:
+                workspace = args.workspace
+                if not os.path.exists(workspace):
+                    os.mkdir(workspace)
+                    
+                out = os.path.join(args.workspace,'UniqRawBed')
+                if not os.path.exists(out):
+                    os.mkdir(out)
+                logging.log(21,'self-defined OutPath not be set, The Out file will be %s',out)
+            else:
+                out = args.out
+                if not os.path.exists(out):
+                    os.mkdir(out)
+            
+            
+            if args.NonAllelic:
+                logging.log(21,'Non-Allelic bam process starts ...')
+                from HapHiC.bamProcess import Bam_Extract_Non_Allelic
+                
+                if len(args.fragments) != 1:
+                    logging.error('Non Allelic fragment file Only be one file')
+                    logging.error('Exit')
+                    sys.exit(1)
+                else:
+                    Frags = args.fragments[0]
+                logging.log(21,'Fragments file %s',Frags)
+                
+                Bam_Extract_Non_Allelic(Bam_Path = bam_path,
+                                        Re_Bam_Path = Re_bam_path,
+                                        Out_Path = out,
+                                        Frag = Frags,
+                                        num = threads,
+                                        level = level)
+                
+            else: 
+                if args.snp == None:
+                    SNP = os.path.join(args.workspace,'genome/SNPs/Snps.pickle')
+                    if not os.path.join(SNP):
+                        logging.error('We could not find Snp temp file under workspace,Specify the location!')
+                        logging.error('Exit')
+                        sys.exit(1)
+                else:
+                    SNP = args.snp
+                    
+                if len(args.fragments) != 2:
+                    logging.error('Allelic fragment should be two file and ordered,Maternal first,Paternal followed')
+                    logging.error('Exit')
+                    sys.exit(1)
+                else:
+                    M_Frags = args.fragments[0]
+                    P_Frags = args.fragments[1]
+                    
+                Bam_Extract(bam_path,Re_bam_path,out,M_Frags,P_Frags,SNP,threads,level)
+            
+            logging.log(21,'Bam Processing is done!')
+         
+        #----------filtering module---------- 
+        if commands[0] == 'filtering':
+            arglist.extend(['# Non-Allelic = %s ' % args.NonAllelic,
+                            '# bedFolder = %s ' % args.bed,
+                            '# CleanRawBed = %s' % (not args.unclean),
+                            '# Threads = %s' % args.threads,
+                            '# OutFolder = %s ' % args.out]) 
+            
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            # Necessary Modules
+            from HiCHap.filtering import cFiltering, aFiltering
+        
+            #Parameters
+            bed_path = args.bed
+            if bed_path == None:
+                logging.log(21,'Bed Path is None, searching under the workspace')
+                bed_path = os.path.join(args.workspace,'UniqRawBed')
+                if not os.path.exists(bed_path):
+                    logging.error('Cant find the bed path under the workspace')
+                    logging.error('Exit')
+                    sys.exit(1)
+                else:
+                    logging.log(21,'Bed Path %s',bed_path)
+                    
+            clean = not args.unclean
+            threads = args.threads
+            if args.NonAllelic:
+                if args.out == None:
+                    workspace = args.workspace
+                    if not os.path.exists(workspace):
+                        os.mkdir(workspace)
+                        
+                    out = os.path.join(args.workspace,'Filtered_Bed')
+                    if not os.path.exists(out):
+                        os.mkdir(out)
+                else:
+                    out = args.out
+                    if not os.path.exists(out):
+                        os.mkdir(out)
+            else:        
+                if args.out == None:
+                    workspace = args.workspace
+                    if not os.path.exists(workspace):
+                        os.mkdir(workspace)
+                        
+                    out = os.path.join(args.workspace,'Allelic_Bed')
+                    if not os.path.exists(out):
+                        os.mkdir(out)
+                else:
+                    out = args.out
+                    if not os.path.exists(out):
+                        os.mkdir(out)
+            
+            if args.NonAllelic:
+                HiC_Filtering = cFiltering(bedPath = bed_path,
+                                           Allelic = 'NonAllelic',
+                                           threads = threads,
+                                           Out_Path = out,
+                                           Collection = clean)
+                
+                HiC_Filtering.HiC_Filtering()
+                
+            else:
+                Maternal_Filter = cFiltering(bedPath = bed_path,
+                                             Allelic = 'Maternal',
+                                             threads = threads,
+                                             Out_Path = out,
+                                             Collection = clean)
+
+                Paternal_Filter = cFiltering(bedPath = bed_path,
+                                             Allelic = 'Paternal',
+                                             threads = threads,
+                                             Out_Path = out,
+                                             Collection = clean)
+            
+                Maternal_Filter.HiC_Filtering()
+            
+                Paternal_Filter.HiC_Filtering()
+            
+                Allelic_Filter = aFiltering(Maternal_bed = Maternal_Filter.Outbed,
+                                            Paternal_bed = Paternal_Filter.Outbed,
+                                            Out_Path = out)
+            
+            
+                Allelic_Filter.Allelic_Filtering()
+            
+            
+            logging.log(21,'Filtering Done! Try to continue with binning.'
+            'haphic binning -h for help')
+        
+        #----------binning module----------
+        if commands[0] == 'binning':
+            # Necessary Modules
+            from HiCHap.binning import Bed_To_Allelic_Matrix, Bed_To_Normal_Matrix_Non_Allelic,properU
+            
+            arglist.extend(['# bedPath = %s ' % args.bedPath,
+                            '# whole Genome Matrix Resolution = %s ' % properU(args.wholeRes),
+                            '# local chromosome Matrix Resolution = %s' % properU(args.localRes),
+                            '# NonAllelic = %s' % args.NonAllelic,
+                            '# genome Size = %s' % args.genomeSize,
+                            '# outPath = %s ' % args.out])
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            #parameters
+            ReplicatePath = args.bedPath
+            genomeSize = args.genomeSize
+            wR = args.wholeRes
+            lR = args.localRes
+            
+            if args.out == None:
+                workspace = args.workspace
+                if not os.path.exists(workspace):
+                    os.mkdir(workspace)
+                    
+                outPath = os.path.join(args.workspace,'RawMatrix')
+                if not os.path.exists(outPath):
+                    os.mkdir(outPath)
+            else:
+                outPath = args.out
+                if not os.path.exists(outPath):
+                    os.mkdir(outPath)
+            
+            
+            #Building Matrix
+            if args.NonAllelic:
+                Bed_To_Normal_Matrix_Non_Allelic(OutPath = outPath,
+                                                 genomeSize = genomeSize,
+                                                 Whole_Res = wR,
+                                                 Local_Res = lR,
+                                                 Rep_Path = ReplicatePath)
+            else:
+                Bed_To_Allelic_Matrix(OutPath = outPath,
+                                      genomeSize = genomeSize,
+                                      Whole_Res = wR,
+                                      Local_Res = lR,
+                                      Rep_Path = ReplicatePath)
+            
+        
+        #-------correct module-----------
+        if commands[0] == 'correcting':
+            # Necessary Modules
+            from HiCHap.correcting import Whole_Normalize
+            from HiCHap.correcting import Allelic_Single_VC_Correcting
+            from HiCHap.correcting import Allelic_Single_Alpha_Correcting
+            from HiCHap.correcting import Non_Allelic_Single_Correcting
+            
+            
+            arglist.extend(['# Mode = %s ' % args.Mode,
+                            '# Matrix npz = %s ' % args.npzPath, 
+                            '# outPath = %s ' % args.out])
+            argtxt = '\n'.join(arglist)
+            logging.log(21,'\n' + argtxt)
+            
+            #parameters
+            Mode = args.Mode
+            NPZ = args.npzPath
+            save_sparse = args.sparse
+#            max_iter = args.maxiter
+#            eps = args.eps
+            out = args.out
+            if Mode == 'Allelic':
+                logging.log(21,"Allelic Correct...")
+                logging.log(21,'Input Path is %s',NPZ[0])
+                Whole_Normalize(NPZ_Path = NPZ[0],
+                                OutPath = out)
+            else:
+                logging.log(21,"Single Matrix Correct...")
+                if args.SingleMode == 'A':
+                    logging.log(21,"Single Mode is %s",args.SingleMode)
+                    logging.log(21,"Correcting for Allelic Matrix")
+                    side = args.side
+                    if side == 'Both':
+                        logging.log(21,'input fil is %s',NPZ[0])
+                        logging.log(21,'VC Correcting ...')
+                        Allelic_Single_VC_Correcting(NPZ[0],out)
+                    elif side == 'One':
+                        logging.log(21,'Raw NPZ fil is %s',NPZ[0])
+                        logging.log(21,'Maternal NPZ fil is %s',NPZ[1])
+                        logging.log(21,'Paternal NPZ fil is %s',NPZ[2])
+                        logging.log(21,'Alpha Correcting ...')
+                        Allelic_Single_Alpha_Correcting(NPZ[0],NPZ[1],NPZ[2],out)
+                else:
+                    logging.log(21,"Single Mode is %s",args.SingleMode)
+                    logging.log(21,"Correcting for Non-Allelic Matrix")
+                    Non_Allelic_Single_Correcting(npz = NPZ[0],
+                                                  out = out,
+                                                  Mode = args.cross,
+                                                  save_sparse = save_sparse)
+            
+            logging.log(21,'Correcting Done!')
+            
+            
+if __name__ == '__main__':
+    run()
