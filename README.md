@@ -1,7 +1,12 @@
 ## HiCHap
 **HiCHap** provide a Python CPU-based implementation for Hi-C pipeline. Tranditional Hi-C pipeline and Haplotype Hi-C pipeline are both available.
 
-More details  in [Github](https://github.com/Prayforhanluo/HiCHap_master) : (https://github.com/Prayforhanluo/HiCHap_master)
+**Download** :
+
+ [PyPI](https://pypi.org/project/HiCHap/) : (https://pypi.org/project/HiCHap/)
+
+ [Github](https://github.com/Prayforhanluo/HiCHap_master) : (https://github.com/Prayforhanluo/HiCHap_master)
+ 
 
 ### Requirement
 1.  Python 2.7+
