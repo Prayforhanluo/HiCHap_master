@@ -23,7 +23,7 @@ for src in glob.glob('scripts/*'):
 setup(name = 'HiCHap',
 	  version = HiCHap.__version__,
 	  author = HiCHap.__author__,
-	  url = 'https://github.com/Prayforhanluo/HiCHap',
+	  url = 'https://github.com/Prayforhanluo/HiCHap_master',
 	  author_email = 'hluo_lc@outlook.com',
 	  description = 'A software for haplotype Hi-C analysis',
 	  long_description = read('README.rst'),
