@@ -23,7 +23,7 @@ Using **conda** , **pip** or their source code to install them if neccessary.
 
 ### Install HiCHap
 
-Now just download the HiCHap source code and gunzip the files from PyPI, and run the setup.py script::
+Now just download the HiCHap source code and gunzip the files from PyPI or Github, and run the setup.py script::
 
 	$ python setup.py install
 
