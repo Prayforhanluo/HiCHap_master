@@ -6,18 +6,20 @@ Created on Sat Feb 23 16:08:13 2019
 """
 
 from __future__ import division
-from mirnylib.numutils import  completeIC
+import matplotlib
+matplotlib.use('Agg')
 from scipy import sparse
 from sklearn import  isotonic
 from sklearn.decomposition import PCA
 from collections import OrderedDict
-from scipy import stats
 from scipy.stats import poisson
 from statsmodels.sandbox.stats.multicomp import multipletests
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LinearSegmentedColormap
+from itertools import  islice
 import matplotlib.pyplot as plt
 import os, math, random, ghmm, bisect
+import cooler, copy
 import numpy as np
 
 
@@ -38,19 +40,9 @@ class StructureFind(object):
     Input Data
     ----------
     
-    This module follows the Matrix building by HiCHap sub-command (binning, correct).
-    The results of Interaction Matrix will be saved as npz format (np.savez ).
+    This module follows the Matrix building by HiCHap sub-command (matrix).
+    The results of Interaction Matrix will be saved as cooler format.
         
-        npz format : dictionary-like structure.
-            key : chromosome
-            value : 2D like interaction matrix.
-            
-    At present, Only npz format Matrix are accepted.
-    
-    RawNPZ : uncorrect interaction matrix npz
-    CorNPZ : correct interaction matrix npz
-    
-    The Key API examples:
     
     :: code-block:: python
     
@@ -95,13 +87,16 @@ class StructureFind(object):
     
     
     """
-    def __init__(self, RawNPZ, CorNPZ, Res):
+    def __init__(self, cooler_fil, Res, Allelic, GapFile = None, 
+                 Loop_ratio = 0.6, Loop_strength = 16):
         
         #------------Initialization the HiC Matrix Dictionary----------------
-        self.rawnpz = RawNPZ
-        self.cornpz = CorNPZ
+        self.cooler_fil = '{}::{}'.format(cooler_fil, Res)
         self.Res = Res
-        
+        self.Allelic = Allelic
+        self.Gap_file = GapFile
+        self.ratio = Loop_ratio
+        self.LoopStrength = Loop_strength
 
 #===============================Public Functions====================================
 
@@ -131,7 +126,7 @@ class StructureFind(object):
         return np.array(New_Index), np.array(New_Sig)
     
     
-    def Cmap_Setting(self,**kwargs):
+    def Cmap_Setting(self, types = 2, **kwargs):
         """
             Color bar setting. hexadecimal notation(#16) must be input.
         
@@ -145,9 +140,13 @@ class StructureFind(object):
         """
         
         start_Color = kwargs.get('start_Color','#FFFFFF')
+        middle_Color = kwargs.get('middle_Color','#FFFFFF')
         end_Color = kwargs.get('end_Color','#CD0000')
-        
-        return LinearSegmentedColormap.from_list('interactions',[start_Color,end_Color])
+        if types == 2:
+            return LinearSegmentedColormap.from_list('interactions',[start_Color,end_Color])
+        elif types == 3:
+            return LinearSegmentedColormap.from_list('interactions',[start_Color,middle_Color,end_Color])
+            
 
 
     def properU(self, pos):
@@ -264,7 +263,36 @@ class StructureFind(object):
     
         return distance_bin, G_array, NG_array
         
-    def Get_PCA(self, distance_bin, M, NG_array):
+    
+    def Sliding_Approach(self, M, decline, window):
+        """
+            Sliding Approach by Ren Bin.  may be a little difference
+
+        """
+        step = window // self.Res // 2
+        
+        N = M.shape[0]
+        
+        OE_matrix_bigger = np.zeros(M.shape)
+        
+        for i in range(N):
+            for j in range(N):
+                if i < step or j < step:
+                    OE_matrix_bigger[i][j] = M[i][j] / decline[abs(i-j)]
+                elif i > N - step - 1 or j > N - step - 1:
+                    OE_matrix_bigger[i][j] = M[i][j] / decline[abs(i-j)]
+                else:
+                    O_Sum = M[i-step:i+step+1, j-step:j+step+1].sum()
+                    E_Sum = 3 * decline[abs(i-j)] + 2 * decline[abs(i-j-1)] + \
+                            2 *decline[abs(i-j+1)] + decline[abs(i-j-2)] + \
+                            decline[abs(i-j+2)]
+                    
+                    OE_matrix_bigger[i][j] = O_Sum / E_Sum
+        
+        return OE_matrix_bigger
+                    
+        
+    def Get_PCA(self, distance_bin, M, NG_array, SA = False):
         """
             Based on Distance_Decay 
             Get the:
@@ -287,10 +315,13 @@ class StructureFind(object):
         
         OE_matrix_bigger = np.zeros(M.shape)
         
-        for i in range(M.shape[0]):
-            for j in range(M.shape[1]):
-                if M[i][j] != 0:
-                    OE_matrix_bigger[i][j] = M[i][j] / decline[abs(i-j)]
+        if SA == False:
+            for i in range(M.shape[0]):
+                for j in range(M.shape[1]):
+                    if M[i][j] != 0:
+                        OE_matrix_bigger[i][j] = M[i][j] / decline[abs(i-j)]
+        else:
+            OE_matrix_bigger = self.Sliding_Approach(M, decline, window=600000)
         
         OE_matrix = OE_matrix_bigger[:,NG_array]
         
@@ -302,6 +333,7 @@ class StructureFind(object):
         pca_components=np.vstack((pca.components_[0],pca.components_[1],pca.components_[2]))
         
         return pca_components, Cor_matrix, OE_matrix
+        
     
     def Select_PC(self, Cor_matrix, pca_components):
         """
@@ -332,31 +364,79 @@ class StructureFind(object):
         
         return pc_selected
         
-    def Compartment(self):
+    def Refill_Gap(self, M1, M2, NonGap, dtype):
+        """
+            Refill zero value into Gap in OE Matrix and Correlation Matrix.
+            
+        """
+        Refilled_M = np.zeros(M1.shape, dtype = np.float)
+        if dtype == 'Cor':
+            tmp = np.zeros((M1.shape[0], M2.shape[0]), dtype = np.float)
+            for i in range(len(NonGap)):
+                insert_pos = NonGap[i]
+                tmp[insert_pos] = M2[i]
+
+            tmp = tmp.T
+        
+            for i in range(len(NonGap)):
+                insert_pos = NonGap[i]
+                Refilled_M[insert_pos] = tmp[i]
+
+        elif dtype == 'OE':   
+            M2 = M2.T
+            for i in range(len(NonGap)):
+                insert_pos = NonGap[i]
+                Refilled_M[insert_pos] = M2[i]
+                
+                Refilled_M = Refilled_M.T
+                
+        return Refilled_M
+        
+    def Compartment(self, SA = False):
         """
             Compute the Compartment Structure for each Chromosome
         """
         
         print "Compartment Analysis start ..."
         print "Resolution is %s ..." % self.properU(self.Res)
-        Lib = np.load(self.cornpz)
-        Matrix_Lib = Lib['Matrix'][()]
+        
+        self.cooler = cooler.Cooler(self.cooler_fil)
+        
+        if self.Allelic == False:
+            chroms = self.cooler.chromnames
+        elif self.Allelic == 'Maternal':
+            chroms = [i for i in self.cooler.chromnames if i.startswith('M')]
+        elif self.Allelic == 'Paternal':
+            chroms = [i for i in self.cooler.chromnames if i.startswith('P')]
+        else:
+            raise Exception ('Unkonwn key word %s, Only Maternal, Paternal, False allowed' % self.Allelic)
+        
+        self.chroms = chroms
+        Matrix_Lib = {}
+        for chro in chroms:
+            Matrix_Lib[chro] = self.cooler.matrix(balance = False).fetch(chro)
+        
         self.Matrix_Dict = Matrix_Lib
+        self.Cor_Martrix_Dict = {}
+        self.OE_Matrix_Dict = {}
         self.Compartment_Dict = {}
-        chroms = Matrix_Lib.keys()
+        
         for chro in chroms:
             print "Chromosome %s start" % chro
             M = Matrix_Lib[chro]
             distance_bin, Gap, NonGap = self.Distance_Decay(M=M, G_array=None)
-            pca, Cor_M, OE_M = self.Get_PCA(distance_bin=distance_bin, M=M, NG_array=NonGap)
+            pca, Cor_M, OE_M = self.Get_PCA(distance_bin=distance_bin, M=M, NG_array=NonGap, SA = SA)
             pc_select = self.Select_PC(Cor_matrix=Cor_M, pca_components=pca)
+            
+            OE_M = self.Refill_Gap(M, OE_M, NonGap, dtype = 'OE')
+            Cor_M = self.Refill_Gap(M, Cor_M, NonGap, dtype = 'Cor')
             
             Compartment_zeros = np.zeros((M.shape[0],), dtype = np.float)
             Compartment_zeros[NonGap] = pc_select
             
             self.Compartment_Dict[chro] = Compartment_zeros
-        
-        print "Done!"
+            self.Cor_Martrix_Dict[chro] = Cor_M
+            self.OE_Matrix_Dict[chro] = OE_M
     
 
     def OutPut_PC_To_txt(self, out):
@@ -369,14 +449,19 @@ class StructureFind(object):
             out file
         """
         f = open(out, 'w')
-        for chro, pc in self.Compartment_Dict.items():
-            for value in pc:
-                f.writelines(chro+'\t'+str(value)+'\n')
+        if self.Allelic == False:
+            for chro, pc in self.Compartment_Dict.items():
+                for value in pc:
+                    f.writelines(chro+'\t'+str(value)+'\n')
+        else:
+            for chro, pc in self.Compartment_Dict.items():
+                for value in pc:
+                    f.writelines(chro[1:]+'\t'+str(value)+'\n')
         
         f.close()
     
     
-    def Plot_Compartment(self, out):
+    def Plot_Compartment(self, out, MS = 'IF'):
         """
             Output the Compartment Structure to a  PDF
         
@@ -384,24 +469,52 @@ class StructureFind(object):
         --------
         out : str
             out PDF file.
+        
+        Matrix :  Matrix Str type
+        
+                'IF' : Interaction Matrix.
+                'OE' : Observed / Expected Matrix.
+                'Cor' : Correlation Matrix.
+                
         """
         pp = PdfPages(out)
-        cmap = self.Cmap_Setting()
         self.fig_settings()
+        if MS == 'IF':
+            Matrix_Dict = self.Matrix_Dict
+            cmap = self.Cmap_Setting()
+        elif MS == 'OE':
+            Matrix_Dict = self.OE_Matrix_Dict
+            cmap = self.Cmap_Setting(types=3,start_Color='#0000FF')
+        elif MS == 'Cor':
+            Matrix_Dict = self.Cor_Martrix_Dict
+            cmap = self.Cmap_Setting(types=3,start_Color='#0000FF')
+        else:
+            raise Exception("Unknown Matrix String %s, Only IF, OE, Cor strings allowed." % MS)
         
-        for chro in self.Matrix_Dict.keys():
-            Matrix = self.Matrix_Dict[chro]
+        for chro in self.chroms:
+            Matrix = Matrix_Dict[chro]
             Sigs = self.Compartment_Dict[chro]
             N = Matrix.shape[0]
-            nonzero = Matrix[np.nonzero(Matrix)]
-            vmax = np.percentile(nonzero,95)
+            
+            if MS == 'IF':
+                nonzero = Matrix[np.nonzero(Matrix)]
+                vmax = np.percentile(nonzero,95)
+                vmin = 0
+            elif MS == 'OE':
+                nonzero = Matrix[np.nonzero(Matrix)]
+                vmax = np.percentile(nonzero, 90)
+                vmin = 2 - vmax
+            elif MS == 'Cor':
+                nonzero = Matrix[np.nonzero(Matrix)]
+                vmax = np.percentile(nonzero, 90)
+                vmin = -vmax
             
             fig = plt.figure(figsize = self.figure_Dict['size'])
             ax = fig.add_axes([self.figure_Dict['Left'], self.figure_Dict['HB'],
                                self.figure_Dict['width'], self.figure_Dict['HH']])
                                
             sc = ax.imshow(Matrix, cmap = cmap, aspect = 'auto', interpolation = 'none',
-                           extent = (0, N, 0, N), vmax = vmax, origin = 'lower')
+                           extent = (0, N, 0, N), vmin = vmin, vmax = vmax, origin = 'lower')
             
             ticks = list(np.linspace(0, N, 5).astype(int))
             pos = [t * self.Res for t in ticks]
@@ -411,6 +524,10 @@ class StructureFind(object):
             ax.set_xticklabels(labels)
             ax.set_yticks(ticks)
             ax.set_yticklabels(labels)
+            if self.Allelic == False:
+                ax.set_xlabel('Chr'+chro, size = 14)
+            else:
+                ax.set_xlabel('Chr'+chro[1:], size = 14)
             
             
             
@@ -442,7 +559,7 @@ class StructureFind(object):
         pp.close()                    
         
         
-    def run_Compartment(self, OutPath):
+    def run_Compartment(self, OutPath, plot = True, MS = 'IF', SA = False):
         """
             Main function to Get Compartment
         
@@ -451,6 +568,7 @@ class StructureFind(object):
         OutPath : str
             Out Put Path
         """
+        OutPath.rstrip('/')
         if os.path.exists(OutPath):
             pass
         else:
@@ -460,11 +578,12 @@ class StructureFind(object):
         res = self.properU(self.Res)
         
         fil = os.path.join(OutPath, prefix+'_Compartment_'+res+'.txt')
-        pdf = os.path.join(OutPath, prefix+'_Compartment_'+res+'.pdf')
+        pdf = os.path.join(OutPath, prefix+'_Compartment_'+MS+'_'+res+'.pdf')
         
-        self.Compartment()
+        self.Compartment(SA = SA)
         self.OutPut_PC_To_txt(fil)
-        self.Plot_Compartment(pdf)
+        if plot:
+            self.Plot_Compartment(pdf, MS)
         
 
 #==============================TAD Analysis module==================================
@@ -609,9 +728,28 @@ class StructureFind(object):
             Data preprocess for ghmm model.
         
         """
-        Lib = np.load(self.cornpz)
-        Matrix_Dict = Lib['Matrix'][()]
-        
+        Matrix_Dict = {}
+        self.cooler = cooler.Cooler(self.cooler_fil)
+
+        if self.Allelic == False:
+            chroms = self.cooler.chromnames
+            for chro in chroms:
+                M = self.cooler.matrix(balance = True).fetch(chro)
+                M = np.nan_to_num(M)
+                Matrix_Dict[chro] = M
+        elif self.Allelic == 'Maternal':
+            chroms = [i for i in self.cooler.chromnames if i.startswith('M')]
+            for chro in chroms:
+                M = self.cooler.matrix(balance = False).fetch(chro)
+                Matrix_Dict[chro] = M
+        elif self.Allelic == 'Paternal':
+            chroms = [i for i in self.cooler.chromnames if i.startswith('P')]
+            for chro in chroms:
+                M = self.cooler.matrix(balance = False).fetch(chro)
+                Matrix_Dict[chro] = M
+        else:
+            raise Exception ('Unkonwn key word %s, Only Maternal, Paternal, False allowed' % self.Allelic)
+            
         window_bin = int(self.window / self.Res)
         width = 7
         Gap_all = {}
@@ -658,7 +796,7 @@ class StructureFind(object):
         self.DI_dict = DI_dict
         self.Gap_all = Gap_all
         self.Matrix_Dict = Matrix_Dict
-        
+        self.chroms = chroms
             
         
     def init_parameter_state3(self):
@@ -1096,7 +1234,7 @@ class StructureFind(object):
         cmap = self.Cmap_Setting()
         self.fig_settings()
         
-        for chro in self.Matrix_Dict.keys():
+        for chro in self.chroms:
             Matrix = self.Matrix_Dict[chro]
             Sigs = self.DI_dict[chro]
             TADs = self.Domain_dict[chro]
@@ -1124,6 +1262,7 @@ class StructureFind(object):
                 if nonzero.size <= 100:
                     plt.close(fig)
                     startHiC = endHiC
+                    continue
                 
                 vmax = np.percentile(nonzero, 95)
                 sc = ax.imshow(M, cmap = cmap, aspect = 'auto', interpolation = 'none',
@@ -1147,7 +1286,10 @@ class StructureFind(object):
                 ax.set_xticklabels(labels)
                 ax.set_yticks(ticks)
                 ax.set_yticklabels(labels)
-                ax.set_xlabel('chr'+chro, size = 14)
+                if self.Allelic == False:
+                    ax.set_xlabel('Chr'+chro, size = 14)
+                else:
+                    ax.set_xlabel('Chr'+chro[1:], size = 14)
                 
                 ax = fig.add_axes([self.figure_Dict['Left']+self.figure_Dict['width']+0.02,
                                    self.figure_Dict['HB'],0.01,self.figure_Dict['HH']])
@@ -1167,7 +1309,7 @@ class StructureFind(object):
                                 right = False, labelbottom =False, labeltop = False,
                                 labelleft = False, labelright = False)
                 ax2.set_xlim(0,len(tmp_sigs))
-                ax2.set_xlabel('DI', size = 12)
+                ax2.set_ylabel('DI', size = 12)
                 
                 pp.savefig(fig)
                 plt.close(fig)
@@ -1204,13 +1346,17 @@ class StructureFind(object):
             test_type : str
                 test type for DI algorithm. (ttest, chitest) 
                 
+            plot : bool
+                whether plot
+                
         """
         
         minTAD = kwargs.get('minTAD', 200000)
         maxTAD = kwargs.get('maxTAD', 4000000)
         state_num = kwargs.get('state_num', 3)
         window = kwargs.get('window', 600000)
-        test_type = kwargs.get('test_type','ttest')        
+        test_type = kwargs.get('test_type','ttest')
+        PLOT = kwargs.get('plot',True)
         
         
         print " Parameters Initialization ..."
@@ -1239,44 +1385,70 @@ class StructureFind(object):
         
         #Output DI
         DI_out = open(os.path.join(OutPath, prefix+'_DI_'+res+'.txt'),'w')
-        
-        for chro, DI_sub in self.DI_dict.items():
-            for v in DI_sub:
-                DI_out.writelines(chro+'\t'+str(v)+'\n')
-        
+        if self.Allelic == False:
+            for chro, DI_sub in self.DI_dict.items():
+                for v in DI_sub:
+                    DI_out.writelines(chro+'\t'+str(v)+'\n')
+        elif self.Allelic == 'Maternal':
+            for chro, DI_sub in self.DI_dict.items():
+                for v in DI_sub:
+                    DI_out.writelines(chro[1:]+'\t'+str(v)+'\n')
+        elif self.Allelic == 'Paternal':
+            for chro, DI_sub in self.DI_dict.items():
+                for v in DI_sub:
+                    DI_out.writelines(chro[1:]+'\t'+str(v)+'\n')
+        else:
+            raise Exception ('Unkonwn key word %s, Only Maternal, Paternal, False allowed' % self.Allelic)
+    
         DI_out.close()
         
         #Output All Boundary.
         All_B_out = open(os.path.join(OutPath, prefix+'_All_Boundary_'+res+'.txt'),'w')
-        
-        for chro, B_sub in self.boundary_index.items():
-            for b in B_sub['boundary']:
-                All_B_out.writelines(chro+'\t'+str(b)+'\n')
-        
+        if self.Allelic == False:            
+            for chro, B_sub in self.boundary_index.items():
+                for b in B_sub['boundary']:
+                    All_B_out.writelines(chro+'\t'+str(b)+'\n')
+        else: 
+            for chro, B_sub in self.boundary_index.items():
+                for b in B_sub['boundary']:
+                    All_B_out.writelines(chro[1:]+'\t'+str(b)+'\n')
+            
         All_B_out.close()
         
         #Output filtered Boundary.
         filtered_B_out = open(os.path.join(OutPath, prefix+'_Filtered_Boundary_'+res+'.txt'),'w')
-        for chro, B_sub in self.boundary_filtered.items():
-            for b in B_sub:
-                filtered_B_out.writelines(chro+'\t'+str(b)+'\n')
+        if self.Allelic == False:
+            for chro, B_sub in self.boundary_filtered.items():
+                for b in B_sub:
+                    filtered_B_out.writelines(chro+'\t'+str(b)+'\n')
+        else:
+            for chro, B_sub in self.boundary_filtered.items():
+                for b in B_sub:
+                    filtered_B_out.writelines(chro[1:]+'\t'+str(b)+'\n')
         
         filtered_B_out.close()
         
         #Output Domains
         Domains_out = open(os.path.join(OutPath, prefix+'_Domain_'+res+'.txt'),'w')
-        for chro in self.Domain_dict.keys():
-            for i in range(len(self.Domain_dict[chro]['start'])):
-                Domains_out.writelines(chro+'\t'+str(self.Domain_dict[chro]['start'][i])+
-                '\t'+str(self.Domain_dict[chro]['end'][i])+'\n')
+        if self.Allelic == False:
+            for chro in self.Domain_dict.keys():
+                for i in range(len(self.Domain_dict[chro]['start'])):
+                    Domains_out.writelines(chro+'\t'+str(self.Domain_dict[chro]['start'][i])+
+                    '\t'+str(self.Domain_dict[chro]['end'][i])+'\n')
+        else:
+            for chro in self.Domain_dict.keys():
+                for i in range(len(self.Domain_dict[chro]['start'])):
+                    Domains_out.writelines(chro[1:]+'\t'+str(self.Domain_dict[chro]['start'][i])+
+                    '\t'+str(self.Domain_dict[chro]['end'][i])+'\n')
         
         Domains_out.close()
         
         #Plotting
-        print " Plotting ..."
+        if PLOT:
+            print " Plotting ..."
         
-        Pdf_out = os.path.join(OutPath, prefix+'_TADs_Plot_'+res+'.pdf')
-        self.Plot_TAD(Pdf_out)
+            Pdf_out = os.path.join(OutPath, prefix+'_TADs_Plot_'+res+'.pdf')
+            self.Plot_TAD(Pdf_out)
         
         print " Done!"
         
@@ -1326,8 +1498,7 @@ class StructureFind(object):
         
         self.maxww = 20
         self.maxapart = 2000000
-        self.sig = 0.1
-        self.chroms = ['#','X']
+        self.sig = 0.05
     
     def lambdachunk(self, E):
         
@@ -1444,7 +1615,7 @@ class StructureFind(object):
             print " Remove Gap and Blanking area ..."
             for i in range(N):
                 #Gap region                
-                if xi[i] in Gap or yi[i] in Gap:
+                if xi[i] in Gap and yi[i] in Gap:
                     Non_Gap[i]  = False
                 
                 #Blanking region
@@ -1673,15 +1844,37 @@ class StructureFind(object):
         outfil : str
             Output file
         
+        Allelic : 
+                    False for Traditional Loop calling.
+                    Maternal for Haplotype-resolved Loop calling (in Maternal)
+                    Paternal for Haplotype-resolved Loop calling (in Paternal)
+        
         """
         print "===============Calling Loops==============="
-        
-        if Allelic != False:
-            Lib = np.load(self.cornpz)
-            Gap = Lib['Gap'][()]
-            Lib = Lib['Matrix'][()]
-        else: 
-            Lib = np.load(self.rawnpz)
+        self.cooler = cooler.Cooler(self.cooler_fil)
+        self.Matrix = {}
+        #Chromosome List
+        if Allelic == False:
+            chroms = self.cooler.chromnames
+        elif Allelic == 'Maternal':
+            chroms = [i for i in self.cooler.chromnames if i.startswith('M')]
+        elif Allelic == 'Paternal':
+            chroms = [i for i in self.cooler.chromnames if i.startswith('P')]
+        else:
+            raise Exception ('Unkonwn key word %s, Only Maternal, Paternal, False allowed' % Allelic)
+        self.chroms = chroms
+        #Gap List
+        if Allelic == False:
+            pass
+        else:
+            if self.Gap_file == None:
+                raise Exception ('Gap file needed for haplotype-resolved loop calling ...')
+            Gap = np.load(self.Gap_file, allow_pickle = True)
+            Gap = Gap[str(self.Res)][()]
+            gap = {}
+            for chro in chroms:
+                gap[chro] = Gap[chro]
+
             
         OF = open(os.path.join(outfil),'w')
         head = '\t'.join(['chromLabel', 'loc_1', 'loc_2', 'IF', 'D-Enrichment', 'D-pvalue', 'D-qvalue',
@@ -1691,60 +1884,99 @@ class StructureFind(object):
         #---------------Initialize Parameters----------------
         self.Peaks_Parameter()
         
-        for chro in Lib.keys():
-            if ((not self.chroms) or (chro.isdigit() and '#' in self.chroms) or (chro in self.chroms)):
-                print "Chromosome %s ..." % chro
-                
-                if Allelic:
-                    H = Lib[chro]
-                    gap = Gap[chro]
-                    cH = H
-                    bias = np.ones(H.shape[0],)
-                else:
-                    H = Lib[chro][()]
-                    print "Perform ICE ..."
-                    cH, bias = completeIC(H, returnBias = True)
-                    bias = self.bias_handle(bias)
-                    print "Done!"
+        for chro in self.chroms:
+            print "Chromsome %s ..." % chro
+            if Allelic == False:
+                H = self.cooler.matrix(balance = False).fetch(chro)
+                self.Matrix[chro] = H
+                cH = self.cooler.matrix(balance = True).fetch(chro)
+                cH = np.nan_to_num(cH)
+                tmp = self.cooler.bins().fetch(chro)['weight'].values
+                mask = np.logical_not((tmp == 0)) | np.isnan(tmp)
+                biases = np.zeros_like(tmp)
+                biases[mask] = 1 / tmp[mask]
+            else:
+                H = self.cooler.matrix(balance = False).fetch(chro)
+                self.Matrix[chro] = H
+                cH = copy.deepcopy(H)
+                gap_sub = gap[chro]
+                biases = np.ones(H.shape[0],)
             
-                H = H - np.diag(H.diagonal())
-                
-                print "Customize sparse Matrix"
-                chromLen = H.shape[0]
-                num = self.maxapart // self.Res + self.maxww + 1
-                Diags = [np.diagonal(H,i) for i in np.arange(num)]
-                M = sparse.diags(Diags, np.arange(num), format = 'csr')
-                x = np.arange(self.ww, num)
-                y = []
-                cDiags = []
-                for i in x:
-                    diag = np.diagonal(cH, i)
-                    y.append(diag.mean())
-                    cDiags.append(diag)
-                cM = sparse.diags(cDiags, x, format = 'csr')
-                IR = isotonic.IsotonicRegression(increasing = 'auto')
-                IR.fit(x, y)
-                
-                del H, cH
-                
-                if not Allelic:                    
-                    Donuts, LL = self.pcaller(M = M, cM = cM, biases = bias, IR = IR, 
-                                              chromLen = chromLen, Diags = Diags,
-                                              cDiags = cDiags, num = num, Allelic = False)
-                else:
-                    Donuts, LL = self.pcaller(M = M, cM = cM, biases = bias, IR = IR, 
-                                              chromLen = chromLen, Diags = Diags, Gap = gap,
-                                              cDiags = cDiags, num = num, Allelic = True)
-                for i in Donuts:
-                    lineFormat = '%s\t%d\t%d\t%.4g\t%.4g\t%.4g\t%.4g\t%.4g\t%.4g\t%.4g\n'
+            H = H - np.diag(H.diagonal())
+            print "Customize sparse Matrix"
+            chromLen = H.shape[0]
+            num = self.maxapart // self.Res + self.maxww + 1
+            Diags = [np.diagonal(H,i) for i in np.arange(num)]
+            M = sparse.diags(Diags, np.arange(num), format = 'csr')
+            x = np.arange(self.ww, num)
+            y = []
+            cDiags = []
+            for i in x:
+                diag = np.diagonal(cH,i)
+                y.append(diag.mean())
+                cDiags.append(diag)
+            cM = sparse.diags(cDiags, x, format = 'csr')
+            IR = isotonic.IsotonicRegression(increasing = 'auto')
+            IR.fit(x, y)
+            
+            del H, cH
+            if Allelic == False:
+                Donuts, LL = self.pcaller(M = M, cM = cM, biases = biases, IR = IR, 
+                                          chromLen = chromLen, Diags = Diags,
+                                          cDiags = cDiags, num = num, Allelic = False)
+            else:
+                Donuts, LL = self.pcaller(M = M, cM = cM, biases = biases, IR = IR, 
+                                          chromLen = chromLen, Diags = Diags, Gap = gap_sub,
+                                          cDiags = cDiags, num = num, Allelic = True)
+            
+            for i in Donuts:
+                lineFormat = '%s\t%d\t%d\t%.4g\t%.4g\t%.4g\t%.4g\t%.4g\t%.4g\t%.4g\n'
+                if self.Allelic == False:
                     contents = (chro,) + i + Donuts[i] + LL[i][1:]
-                    line = lineFormat % contents
-                    OF.write(line)
+                else:
+                    contents = (chro[1:],)+ i + Donuts[i] + LL[i][1:]
+                line = lineFormat % contents
+                OF.write(line)
                     
         OF.flush()
         OF.close()
         
         print "HICCUPS Done!"
+        
+    
+    def Loop_Selecting(self, input_fil, output_fil):
+        """
+        """
+        print "=================================="
+        print "Loop Selecting ..."
+        
+        f = open(input_fil,'r')
+        head = ['chromLabel', 'loc_1', 'loc_2', 'IF', 'D-Enrichment', 
+                'D-pvalue', 'LL-Enrichment', 'LL-pvalue', 'LL-qvalue']
+        o = open(output_fil, 'w')
+        o.writelines('\t'.join(head)+'\n')
+        
+        for line in islice(f, 1, None):
+            l = line.strip().split()
+            chro = l[0]
+            bin1 = int(l[1]) // 40000
+            bin2 = int(l[2]) // 40000
+            M = self.Matrix[chro]
+            IF = M[bin1][bin2]
+            
+            distance = M.diagonal(bin1 - bin2).copy()
+            distance.sort()
+            
+            index = bisect.bisect_left(distance, IF)
+            ratio = index / len(distance)
+            
+            if ratio < self.ratio or IF < self.LoopStrength:
+                continue
+            else:
+                o.writelines(line)
+        f.close()
+        o.close()
+                
     
     def center_sites(self, lists):
         sum_x = 0
@@ -1803,7 +2035,7 @@ class StructureFind(object):
                 loop.append((outs[0][0], outs[0][1], outs[0][2], outs[0][3], sums))
         return np.array(loop, dtype = [ ('chr', '<S4'), ('S1', '<i4'), ('E1', '<i4'), ('Q', '<f8'), ('sums', '<f8')])
         
-    def LoopCluster(self, rawfil, weight_q_value = 0.0001, Allelic = False):
+    def LoopCluster(self, rawfil, weight_q_value = 0.0001):
         """
             Use the Cluster algorithm for final loop select.
             
@@ -1818,7 +2050,6 @@ class StructureFind(object):
         """
         print "=================================="
         print "Loop Clustering ..."
-        print " "
         loopType = np.dtype({'names':['chr','S1','E1','Q-value'],
                              'formats':['S4', np.int, np.int,np.float]})
         
@@ -1847,19 +2078,21 @@ class StructureFind(object):
         out_fil = open(cluster_fil,'w')
         out_fil.writelines('chr\tstart\tend\tIF\tweight_Q-value\taggregateNum\n')
         
-        if not Allelic:
+        if self.Allelic == False:          
             for outs in loop_final:
                 q_value = outs[3] / (10 ** outs[4])
+                x, y = outs[1] // self.Res, outs[2] // self.Res
                 if q_value < weight_q_value:
-                    lst = [outs[0],outs[1],outs[2],q_value,outs[4]]
+                    lst = [outs[0],outs[1],outs[2],self.Matrix[outs[0]][x][y],q_value,outs[4]]
                     strs = '\t'.join(map(str,lst)) + '\n'
                     out_fil.write(strs)
         else:
-            weighted_Loops = []
-            Lib = np.load(self.cornpz)
-            Matrix = Lib['Matrix'][()]
+            weighted_Loops = []                       
             for outs in loop_final:
-                M = Matrix[outs[0]]
+                if self.Allelic == 'Maternal':
+                    M = self.Matrix['M'+outs[0]]
+                else:
+                    M = self.Matrix['P'+outs[0]]
                 x, y = outs[1] // self.Res, outs[2] // self.Res
                 q_value = outs[3] / (10 ** outs[4])
                 if q_value< weight_q_value:
@@ -1891,9 +2124,104 @@ class StructureFind(object):
                 
         out_fil.close()
         print "Done !"
+        self.out_fil = cluster_fil
+    
+    
+    
+    def Loading_Loops(self):
+        """
+        """
+        dtype = np.dtype({'names':['chr', 'start', 'end'],
+                          'formats':['S4', np.int, np.int]})
+        
+        self.loops = np.loadtxt(self.out_fil, skiprows = 1, usecols = (0,1,2), dtype = dtype)
         
     
-    def run_Loops(self, OutPath, Allelic = False):
+    
+    
+    
+    def Plot_Loops(self, outpdf, length = 4000000):
+        """
+            Plotting Loop with HeatMap
+        """
+        pp = PdfPages(outpdf)
+        cmap = self.Cmap_Setting()
+        self.fig_settings()
+        self.Loading_Loops()
+        if self.Allelic == False:
+            self.Matrix = {}
+            for chro in self.chroms:
+                M = self.cooler.matrix(balance = True).fetch(chro)
+                M = np.nan_to_num(M)
+                self.Matrix[chro] = M
+        else:
+            pass
+        
+        for chro in self.chroms:
+            Matrix = self.Matrix[chro]
+            N = Matrix.shape[0]
+            
+            interval = length // self.Res
+            
+            startHiC = 0
+            Len = N // interval
+            if self.Allelic == False:
+                loops = self.loops[self.loops['chr'] == chro]
+            else:
+                loops = self.loops[self.loops['chr'] == chro[1:]]
+            
+            for idx in range(Len):
+                endHiC = startHiC + interval
+                
+                fig = plt.figure(figsize = self.figure_Dict['size'])
+                ax = fig.add_axes([self.figure_Dict['Left'], self.figure_Dict['HB'],
+                                   self.figure_Dict['width'], self.figure_Dict['HH']])
+                M = Matrix[startHiC:endHiC, startHiC:endHiC]
+                
+                mask = (loops['start'] >= startHiC * self.Res) & (loops['end'] <= endHiC * self.Res)
+                
+                tmp_loops = loops[mask]
+                
+                nonzero = M[np.nonzero(M)]
+                if nonzero.size <= 100 or tmp_loops.size == 0:
+                    plt.close(fig)
+                    startHiC = endHiC
+                    continue
+                
+                vmax = np.percentile(nonzero, 95)
+                sc = ax.imshow(M, cmap = cmap, aspect = 'auto', interpolation = 'none',
+                               extent = (0, M.shape[0], 0, M.shape[0]), vmax = vmax, origin = 'lower')
+                for lp in tmp_loops:
+                    s_t = lp['start'] // self.Res - startHiC
+                    s_e = lp['end'] // self.Res - startHiC
+                    ax.scatter(s_t + 0.5, s_e + 0.5, color = '', edgecolors = 'b', s = 10)
+                
+                
+                ticks = list(np.linspace(0,interval,5).astype(int))
+                pos = [((startHiC + t) * self.Res) for t in ticks]
+                labels = [self.properU(p) for p in pos]
+                ax.set_xticks(ticks)
+                ax.set_xticklabels(labels)
+                ax.set_yticks(ticks)
+                ax.set_yticklabels(labels)
+                ax.set_xlim(0,(endHiC - startHiC))
+                ax.set_ylim(0,(endHiC - startHiC))
+                if self.Allelic == False:
+                    ax.set_xlabel('Chr'+chro, size = 14)
+                else:
+                    ax.set_xlabel('Chr'+chro[1:], size = 14)
+                
+                ax = fig.add_axes([self.figure_Dict['Left'] + self.figure_Dict['width'] + 0.02, 
+                                   self.figure_Dict['HB'], 0.01, self.figure_Dict['HH']])
+                fig.colorbar(sc,cax = ax)
+                
+                pp.savefig(fig)
+                plt.close(fig)
+                startHiC = endHiC
+        pp.close()
+                
+    
+    def run_Loops(self, OutPath, plot = False):
         """
             run Loop calling.
         
@@ -1911,235 +2239,21 @@ class StructureFind(object):
         res = self.properU(self.Res)
         prefix = os.path.split(OutPath.rstrip('/'))[-1]
         outfil = os.path.join(OutPath,prefix+'_Loops_'+res+'.txt')
-        self.CallPeaks(outfil, Allelic = Allelic)
-        self.LoopCluster(rawfil = outfil,
-                         Allelic = Allelic)
-
-
-
-class AllelicSpecificty(object):
-    """
-        Calculate the reliability of Allelic Speicficity for input Loops.
-    
-        The Input Loops can be self-defined.
-        Further More:
-            U can calculate every single interaction's Allelic Specificity based on
-            this class. The level of reliability is based on the all interaction sites.
-            So, Change the Input, The reliability of Allelic Specificity for 
-            each interaction site may be different.
-    
-        :: code-block:: python
-            
-            >> from HiCHap.
-            
-            >>> AS_test = AllelicSpecificty(Maternal_NPZ = 
-                                    './Correct_Merged_Reps_One_Mate_Maternal.npz',
-                                             Paternal_NPZ = 
-                                    './Correct_Merged_Reps_One_Mate_Paternal.npz',
-                                             Loop_file = 
-                                    './Candidate_Loops.txt',
-                                             Res = 40000)
-            >>> AS_test.AllelicSpecificityCalling()
-            
-    """
-    
-    def __init__(self, Maternal_NPZ, Paternal_NPZ, Loop_file, Res):
-        """
-            __init__ method
-            
-        Initializes the Dataset includes M/P haplotype Interaction Matrix and
-        Candidate Loops for Allelic Specificity calculation
-        
-        Input Data
-        ----------
-        
-        Maternal_NPZ : Dictionary-like structure of Maternal Interaction Matrix Data
-        
-        Paternal_NPZ : Dictionary-like structure of Paternal Interaction Matrix Data
-        
-        Loop_file : Loops position file. format as :
-                n * rows
-                        every rows represents for a candidate loop.
-                3 * cols
-                        cols 0 : chromosome ID
-                        cols 1 : Loop loci 1
-                        cols 2 : Loop loci 2
-        
-        Res : resolution(int)
-            
-
-        """
-        self.Maternal_NPZ = Maternal_NPZ
-        self.Paternal_NPZ = Paternal_NPZ
-        self.Loop_file = Loop_file
-        self.Res = Res
-    
-    def DataSetBuilding(self):
-        """
-             DataSet preparing for model.
-        """
-        
-        M_Lib = np.load(self.Maternal_NPZ)
-        P_Lib = np.load(self.Paternal_NPZ)
-        M_Matrix = M_Lib['Matrix'][()]
-        P_Matrix = P_Lib['Matrix'][()]
-        
-        loop_type = np.dtype({'names':['chr', 'start', 'end'],
-                              'formats':['S8', np.int, np.int]})
-        
-        loops = np.loadtxt(self.Loop_file, dtype = loop_type, usecols = [0,1,2])
-        
-        Path = os.path.split(self.Loop_file)[0]
-        prefix = os.path.split(self.Loop_file)[-1]
-        
-        
-        Outfile = os.path.join(Path, 'Allelic_Specificity_'+prefix)
-        self.outfile = Outfile        
-        
-        self.Data = []
-        for lp in loops:
-            chro = lp['chr']
-            start = lp['start'] // self.Res
-            end = lp['end'] // self.Res
-            M_IF = M_Matrix[chro][start][end]
-            P_IF = P_Matrix[chro][start][end]
-            self.Data.append((chro,lp['start'],lp['end'],M_IF,P_IF))
-        
-        DataSet_type = np.dtype({'names':['chr','start','end','M_IF','P_IF'],
-                                 'formats':['S8', np.int, np.int, np.float, np.float]})
-        
-        self.Data = np.array(self.Data, dtype = DataSet_type)
-        
-        
-    def calculate_two_group_stat(self, count, nobs):
-        """
-            Return stats of two property group test
-        """
-        p1 = count[0] / nobs[0]
-        p2 = count[1] / nobs[1]
-        
-        p_ = (nobs[0] * p1 + nobs[1] * p2) / (nobs[0] + nobs[1])
-        z = (p1 -p2) / math.sqrt((p_ * (1 - p_))*((1 / nobs[0])+(1 / nobs[1])))
-        
-        return z
-    
-    def calculate_single_stat(self, p, count, nobs):
-        """
-            Return stats of Single group property test
-        """
-        if count == 0 or (nobs - count) == 0:
-            return 'NA'
-        
-        p_ = count / nobs
-        
-        if p * nobs < 5 or (1 - p) * nobs < 5:
-            return 'NA'
-            
-        elif p * nobs >= 30 and (1 - p) * nobs >= 30:
-            t = (nobs * p_ - nobs * p) / math.sqrt(nobs * p * (1 - p))
-            
+        if self.Allelic == False:
+            select_fil = os.path.join(OutPath, 'Selected_'+prefix+'_Loops_'+res+'.txt')
+            self.CallPeaks(outfil,Allelic=self.Allelic)
+            self.Loop_Selecting(input_fil = outfil, output_fil = select_fil)
+            self.LoopCluster(rawfil = select_fil)
         else:
-            t = (abs(nobs * p_ - nobs * p) - 0.5) / math.sqrt(nobs * p * (1 - p))
+            self.CallPeaks(outfil,Allelic=self.Allelic)
+            self.LoopCluster(rawfil = outfil)
         
-        return t
-    
-    def calculate_Pvalue(self, stat):
-        """
-            Return the P-value of z-test of two side
+        if plot:
+            print "Plotting..."
             
-        """
-        if stat == 'NA':
-            return 'NA'
+            Pdf_out = os.path.join(OutPath, prefix+'_Loops_Plot_'+res+'.pdf')
+            self.Plot_Loops(Pdf_out)
         
-        return stats.norm.sf(abs(stat)) * 2
-    
-    def BH_adjust_pvalue(self, P_value, alpha = 0.05):
-        """
-            Benjamini-Hochbery procedure for P values.
-        """
-        Qvalue = multipletests(P_value, alpha = alpha, method = 'fdr_bh')
-        
-        return Qvalue[1]
-    
-    def Distribution(self):
-        """
-            Distribution of Mean.
-        """
-        Mean = (self.Data['M_IF'] + self.Data['P_IF']) // 2
-        Mean = Mean[Mean.nonzero()]
-        Mean.sort()
-        
-        self.Mean = Mean
-    
-    def BackGround(self):
-        """
-            BackGround of model
-        """
-        self.Distribution()
-        nonzero = np.nonzero(self.Mean)
-        vmax = np.percentile(nonzero,95)
-        mask = ((self.Data['M_IF']+self.Data['P_IF']) / 2 <= vmax) & \
-                (self.Data['M_IF'] != 0) & (self.Data['P_IF'] != 0)
-        
-        self.Data = self.Data[mask]
-        
-        self.sum_M = self.Data['M_IF'].sum()
-        self.sum_T = self.Data['M_IF'].sum() + self.Data['P_IF'].sum()
-    
-    
-    def AllelicSpecificityCalling(self):
-        """
-            Calculate the Allelic Specificity.
-        """
-        print "=================Allelic Specificity=============="
-        print "DataSet preparing ..."
-        self.DataSetBuilding()
-        print "Background preparing ..."
-        self.BackGround()
-        
-        self.p = self.sum_M / self.sum_T
-        print "Maternal total ratio %s." % self.p
-        
-        print "Modeling ..."
-        out = open(self.outfile,'w')
-        
-        head = ['chr','start','end', 'M_IF', 'P_IF', 'QR', 'Log2(FC)', 'stat', 'P_value']
-        out.writelines('\t'.join(head)+'\n')
-        
-        Ratio_P_lst = []
-        FC_lst = []
-        zstat_lst = []
-        pvalue_lst = []
-        
-        for loop in self.Data:
-            loop_M = loop['M_IF']
-            loop_T = loop['P_IF'] + loop['M_IF']
-            
-            stat = self.calculate_single_stat(self.p, loop_M, loop_T)
-            pvalue = self.calculate_Pvalue(stat)
-            
-            if stat == 'NA':
-                Ratio_P = 'NA'
-                FC = 'NA'
-            else:
-                loop_mean = loop_T // 2
-                Ratio_P = bisect.bisect_left(self.Mean, loop_mean) / len(self.Mean)
-                FC = np.log2((loop_M) / (loop_T-loop_M))
-            
-            Ratio_P_lst.append(Ratio_P)
-            FC_lst.append(FC)
-            zstat_lst.append(stat)
-            pvalue_lst.append(pvalue)
-        
-        for i, loop in enumerate(self.Data):
-            Info = [loop['chr'],loop['start'],loop['end'],loop['M_IF'],loop['P_IF'],
-                    Ratio_P_lst[i],FC_lst[i],zstat_lst[i],pvalue_lst[i]] 
-            
-            info = map(str,Info)
-            
-            out.writelines('\t'.join(info)+'\n')
-        
-        out.close()
-        
-        print "Done!"
-        
+        print 'Done !'
+
+ 
