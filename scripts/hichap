@@ -22,10 +22,10 @@ def getargs():
     
     ## All
     common = argparse.ArgumentParser(add_help = False)
-    common.add_argument('-log','--logfile', default = 'HapHiC.log', 
+    common.add_argument('-log','--logfile', default = 'HiCHap.log', 
                         help = 'log file')
-    common.add_argument('-w','--workspace', default = 'haphic_workspace',
-                        help = """workspace for haphic pipeline. haphic will
+    common.add_argument('-w','--workspace', default = 'hichap_workspace',
+                        help = """workspace for hichap pipeline. hichap will
                         search the Input file from the prior Output for posterior sub-command.
                         If U move the Output results or want to self-defined the Output results.
                         Please,Use the related parameters.""")
@@ -128,12 +128,12 @@ def getargs():
     
     HapM_IO.add_argument('-f', '--fastq',default = None,
                       help = '''Rebuilding FASTA Folder.
-                      HapHiC update Output Folder.If self-defined OutPath not set in rebuild,
-                      haphic will search the current workspace. If self-defined OutPath set,pls give
+                      HiCHap update Output Folder.If self-defined OutPath not set in rebuild,
+                      hichap will search the current workspace. If self-defined OutPath set,pls give
                       the correct fastq Path.''')
     
     HapM_IO.add_argument('-i','--bowtieIndex', nargs = '+',
-                      help = '''Path to the bowtie2 genome index build by HapHiC rebuild.
+                      help = '''Path to the bowtie2 genome index build by HiCHap rebuild.
                       bowtieIndex can be one or two.
                       For only one input, Non-Allelic mapping task will start. All chunks fq will
                       be mapped to this genome Index. eg: -i(--bowtieIndex) /public/home/genome/mm10.
@@ -201,7 +201,7 @@ def getargs():
                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
                                  
     Resue.add_argument('-b','--bam',default = None,
-                       help = """GlobalMapping results of haphic. """)
+                       help = """GlobalMapping results of hichap. """)
     
     Resue.add_argument('-e','--enzyme',default = 'MboI',
                        help = """enzymeName U can use the usual enzyme Name like MboI HindIII 
@@ -241,7 +241,7 @@ def getargs():
                           pls give the correct fastq Path.""")
     
     ReMap_IO.add_argument('-i','--bowtieIndex',nargs = '+',
-                          help = '''Path to the bowtie2 genome index build by HapHiC rebuild.
+                          help = '''Path to the bowtie2 genome index build by HiCHap rebuild.
                           bowtieIndex can be one or two.
                           For only one input, Non-Allelic Remapping task will start. All  fq will
                           be Remapped to this genome Index. eg: -i(--bowtieIndex) /public/home/genome/mm10.
@@ -362,7 +362,7 @@ def getargs():
                                   formatter_class = argparse.ArgumentDefaultsHelpFormatter)
     
     Filter.add_argument('-b','--bed',default = None,
-                        help = """Path to HapHiC mapping results by HapHiC bamProcess.
+                        help = """Path to HiCHap mapping results by HiCHap bamProcess.
                                     if None, We will Seach the workspace.""")
     Filter.add_argument('-uc','--unclean',action = 'store_true',default = False,
                         help = """if set this parameter, We will remain the Raw chunk bed files.
@@ -378,92 +378,58 @@ def getargs():
                                   if None, We will save the Allelic results under the
                                   workspace""")
     
-    ## Binning
-    Binning = subparser.add_parser('binning',
+    
+    
+    ## Matrix Construction
+    MatrixC = subparser.add_parser('matrix',
                                    parents = [common],
-                                   help = """Building the Interaction Matrix.""",
-                                   description = """Building Matrix, All Matrix will build contains the
-                                   Merge results of Replicates.""",
-                                   epilog = """After this command, a RawMatrix folder contains all matrix
-                                   will be created under current workspace directory or self-defined
-                                   folder of the related parameters.""",
+                                   help = """Contact Matrix Construction""",
+                                   description = """Contact Matrix Construction,
+                                   Cooler files are accepted""",
+                                   epilog = '',
                                    formatter_class = argparse.ArgumentDefaultsHelpFormatter)
     
-    Binning.add_argument('-b','--bedPath',nargs = '+',
+    MatrixC.add_argument('-b','--bedPath',nargs = '+',
                          help = """ Filtered bed path by filtering module. If U want to 
                          Merge the Replicates, U can input the several replicats path. like:
                          -b(--bedPath) /public/home/R1 /pubilc/home/R2 .""")
     
-    Binning.add_argument('-o','--out',default = None,
-                         help = """self-defined Output Folder,if NOT set, U will get the
-                         Matrix results in RawMatrix under workspace.""")
+    MatrixC.add_argument('-o','--out',
+                         help = "Output Folder.")
     
-    Binning.add_argument('-N','--NonAllelic',action = 'store_true',default = False,
-                         help = 'if set, running Non-Allelic HiC binning')
+    MatrixC.add_argument('-N', '--NonAllelic', action = 'store_true', default = False,
+                         help = 'if set, running Traditional HiC Matrix Pipeline')
     
-    Binning.add_argument('-gs','--genomeSize',help = 'genomeSize file Path.')
+    MatrixC.add_argument('-gs','--genomeSize',help = 'genomeSize file Path.')
     
-    Binning.add_argument('-wR','--wholeRes',type = int, default = 1000000,
-                         help = 'Whole Genome Matrix Resolution. default : 1M, Unit: bp')
+    MatrixC.add_argument('-wR','--wholeRes', nargs = '+', type = int, default = [5000000, 2000000],
+                         help = 'Genome-Wide Matrix Resolution. default : [5M, 2M], Unit: bp')
     
-    Binning.add_argument('-lR','--localRes',type = int, default = 100000,
-                         help = """Local chromosome Matrix Resolution include the Raw 
-                         Matrix and Allelic Matrix. default : 100K. Unit : bp""")
-                         
-    ##Allelic_Correct
-    Allel_Cor = subparser.add_parser('correcting',
-                                      parents = [common],
-                                      help = """Correcting the Interaction Matrix""",
-                                      description = """Correcting the interaction matrix. 
-                                      we will perform ICE correction for non-haplotype interaction matrix 
-                                      and HiCHap correction for haplotype interaction matrix.""",
-                                      epilog = """After this command, a output folder contains all the
-                                      corrected matrix will be created""",
-                                      formatter_class = argparse.ArgumentDefaultsHelpFormatter)
-    Allel_Cor.add_argument('-p','--npzPath',nargs = '+',
-                           help = """Raw Matrix path. Created by binning.
-                           For -M Allelic : -p is the Binning OutPath.
-                           For -M Single -SM A -s One : -p is 3 NPZ(Raw Maternal Paternal)
-                           locations.
-                           For -M Single -SM A -s Both : -p is Both Mate Allelic NPZ location
-                           For -M Single -SM N : -p is Non-Allelic NPZ location.""")
+    MatrixC.add_argument('-lR','--localRes', nargs = '+', type = int, default = [500000, 40000],
+                         help = 'Intra-Chromosome Matrix Resolution. default : [500K, 40K], Unit : bp')
     
-    Allel_Cor.add_argument('-M','--Mode',choices = ['Allelic','Single'],
-                           help = """ Pattern for Correct, For Allelic, Binning OutPath
-                           is required. And haphic will correct all the Matrix in Binning
-                           OutPath.For Single, Only Correct the Matrix U interested.
-                           But SM(SingleMode) and other parameters may be needed.""")    
+    MatrixC.add_argument('-ratio','--ImputationRatio', type = float, default = 0.9,
+                         help = """Imputation ratio for Inter-Chromosome Impuatation method in
+                         Haplotype-resolved Matrix Building""")
     
-    Allel_Cor.add_argument('-SM','--SingleMode',choices = ['A','N'],default = 'A',
-                           help = """Pattern for Single Correcting. A for Allelic correct,
-                           We will correct the allelic Matrix, another parameter -s is needed.
-                           N for Non-Allelic, We will correct Tranditianal HiC Matrix, another
-                           parameter -c is needed.""")
-    Allel_Cor.add_argument('-s','--side',choices = ['Both','One'],default = 'One',
-                           help = """For Allelic Single Correct,
-                           One Mate Allelic Matrix, We will Correct Using Alpha Correcting.
-                           On this way -p(--npzPath) need 3 npz.Raw Maternal Paternal.eg:
-                           haphic correct -M Single -SM A -s One -p Merged_Reps_Local_Chromosome_Matrix.npz 
-                           Merged_Reps_One_Mate_Maternal.npz Merged_Reps_One_Mate_Paternal.npz -o Out.
-                           Both Mate Allelic Matrix, We will Correct Using VC Correcting
-                           """)
+    MatrixC.add_argument('-min','--ImputationMin', type = int, default = 2,
+                         help =  """Imputation min value for Inter-Chromosome Impuatation method in
+                         Haplotype-resolved Matrix Building""")
     
-    Allel_Cor.add_argument('-c','--cross',choices = ['whole','local'],default = 'local',
-                           help = """ For Non-Allelic Single Correct, 
-                           Only Tranditianal Whole Matrix npz or 
-                           Local Matrix npz works,whole for Whole Genome.
-                           local for local chromosome by chromosome.""") 
-                        
-    Allel_Cor.add_argument('--sparse',action = 'store_true',default = False,
-                           help = """Save data on sparse  Matrix Way Only work for Non-Allelic
-                           Correcting.""")
+    MatrixC.add_argument('-region', '--ImputationRegion', type = int, default = 10000000,
+                         help =  """Imputation region for Inter-Chromosome Impuatation method in
+                         Haplotype-resolved Matrix Building""")
     
-    Allel_Cor.add_argument('-o','--out',help = """OutPut Path""")
-
+    MatrixC.add_argument('-C', '--chroms', nargs = '*', default = ['#', 'X'],
+                        help = 'List of chromosome labels. Only Hi-C data within the specified '
+                        'chromosomes will be included. Specially, "#" stands for chromosomes '
+                        'with numerical labels. "--chroms" with zero argument will include '
+                        'all chromosome data.')
+    
                                            
     commands = sys.argv[1:]
     if  ((not commands) or ((commands[0] in ['rebuildG','rebuildF','GlobalMapping','Rescue','ReMapping',
-                                             'bamProcess','filtering','binning','correcting'])
+                                             'bamProcess','filtering','matrix'])
         and len(commands)==1)):
             commands.append('-h')
     args = parser.parse_args(commands)
@@ -815,7 +781,7 @@ def run():
                 sys.exit(1)
             
             if args.fastq == None:
-                fastq_path = os.path.join(args.workspace,'RescueFatstq')
+                fastq_path = os.path.join(args.workspace,'RescueFastq')
                 logging.log(21,'self-defined chunk Folder not be set, Try to find at %s',fastq_path)
                 if not os.path.exists(fastq_path):
                     logging.error('fastq chunks could not be find under workspace.')
@@ -947,7 +913,8 @@ def run():
             
             if args.NonAllelic:
                 logging.log(21,'Non-Allelic bam process starts ...')
-                from HapHiC.bamProcess import Bam_Extract_Non_Allelic
+                
+                from HiCHap.bamProcess import Bam_Extract_Non_Allelic
                 
                 if len(args.fragments) != 1:
                     logging.error('Non Allelic fragment file Only be one file')
@@ -1076,110 +1043,60 @@ def run():
             
             
             logging.log(21,'Filtering Done! Try to continue with binning.'
-            'haphic binning -h for help')
+            'hichap binning -h for help')
         
-        #----------binning module----------
-        if commands[0] == 'binning':
-            # Necessary Modules
-            from HiCHap.binning import Bed_To_Allelic_Matrix, Bed_To_Normal_Matrix_Non_Allelic,properU
+        #----------Matrix Construction Module----------
+        if commands[0] == 'matrix':
+            #Neccessary
+            from HiCHap.matrixBuilding import TraditionalMatrixConstruction
+            from HiCHap.matrixBuilding import HaplotypeMatrixConstruction
             
-            arglist.extend(['# bedPath = %s ' % args.bedPath,
-                            '# whole Genome Matrix Resolution = %s ' % properU(args.wholeRes),
-                            '# local chromosome Matrix Resolution = %s' % properU(args.localRes),
+            arglist.extend(['# bedPath = %s' % args.bedPath,
                             '# NonAllelic = %s' % args.NonAllelic,
-                            '# genome Size = %s' % args.genomeSize,
-                            '# outPath = %s ' % args.out])
+                            '# genomeSize = %s' % args.genomeSize,
+                            '# wholeResList = %s' % args.wholeRes,
+                            '# localResList = %s' % args.localRes,
+                            '# OutFolder = %s' % args.out,
+                            '# Imputation Ratio = %s' % args.ImputationRatio,
+                            '# Imputation Min = %s' % args.ImputationMin,
+                            '# Imputation Region = %s' % args.ImputationRegion,
+                            '# ChromosomeList = %s' % args.chroms])
             argtxt = '\n'.join(arglist)
-            logging.log(21,'\n' + argtxt)
-            
-            #parameters
+            logging.log(21, '\n'+argtxt)
+           
+            #Parameters
             ReplicatePath = args.bedPath
+            OutPath = args.out
             genomeSize = args.genomeSize
-            wR = args.wholeRes
-            lR = args.localRes
+            NonAllelic = args.NonAllelic
+            wholeRes = args.wholeRes
+            localRes = args.localRes
+            ImputationRatio = args.ImputationRatio
+            ImputationMin = args.ImputationMin
+            ImputationRegion = args.ImputationRegion
+            chroms = args.chroms
             
-            if args.out == None:
-                workspace = args.workspace
-                if not os.path.exists(workspace):
-                    os.mkdir(workspace)
-                    
-                outPath = os.path.join(args.workspace,'RawMatrix')
-                if not os.path.exists(outPath):
-                    os.mkdir(outPath)
+            if not os.path.exists(OutPath):
+                os.mkdir(OutPath)
+            
+            ##Building Matrix
+            if NonAllelic:
+                TraditionalMatrixConstruction(OutPath = OutPath,
+                                              RepPath = ReplicatePath,
+                                              genomeSize = genomeSize,
+                                              wholeRes = wholeRes,
+                                              localRes = localRes,
+                                              chroms = chroms)
             else:
-                outPath = args.out
-                if not os.path.exists(outPath):
-                    os.mkdir(outPath)
-            
-            
-            #Building Matrix
-            if args.NonAllelic:
-                Bed_To_Normal_Matrix_Non_Allelic(OutPath = outPath,
-                                                 genomeSize = genomeSize,
-                                                 Whole_Res = wR,
-                                                 Local_Res = lR,
-                                                 Rep_Path = ReplicatePath)
-            else:
-                Bed_To_Allelic_Matrix(OutPath = outPath,
-                                      genomeSize = genomeSize,
-                                      Whole_Res = wR,
-                                      Local_Res = lR,
-                                      Rep_Path = ReplicatePath)
-            
-        
-        #-------correct module-----------
-        if commands[0] == 'correcting':
-            # Necessary Modules
-            from HiCHap.correcting import Whole_Normalize
-            from HiCHap.correcting import Allelic_Single_VC_Correcting
-            from HiCHap.correcting import Allelic_Single_Alpha_Correcting
-            from HiCHap.correcting import Non_Allelic_Single_Correcting
-            
-            
-            arglist.extend(['# Mode = %s ' % args.Mode,
-                            '# Matrix npz = %s ' % args.npzPath, 
-                            '# outPath = %s ' % args.out])
-            argtxt = '\n'.join(arglist)
-            logging.log(21,'\n' + argtxt)
-            
-            #parameters
-            Mode = args.Mode
-            NPZ = args.npzPath
-            save_sparse = args.sparse
-#            max_iter = args.maxiter
-#            eps = args.eps
-            out = args.out
-            if Mode == 'Allelic':
-                logging.log(21,"Allelic Correct...")
-                logging.log(21,'Input Path is %s',NPZ[0])
-                Whole_Normalize(NPZ_Path = NPZ[0],
-                                OutPath = out)
-            else:
-                logging.log(21,"Single Matrix Correct...")
-                if args.SingleMode == 'A':
-                    logging.log(21,"Single Mode is %s",args.SingleMode)
-                    logging.log(21,"Correcting for Allelic Matrix")
-                    side = args.side
-                    if side == 'Both':
-                        logging.log(21,'input fil is %s',NPZ[0])
-                        logging.log(21,'VC Correcting ...')
-                        Allelic_Single_VC_Correcting(NPZ[0],out)
-                    elif side == 'One':
-                        logging.log(21,'Raw NPZ fil is %s',NPZ[0])
-                        logging.log(21,'Maternal NPZ fil is %s',NPZ[1])
-                        logging.log(21,'Paternal NPZ fil is %s',NPZ[2])
-                        logging.log(21,'Alpha Correcting ...')
-                        Allelic_Single_Alpha_Correcting(NPZ[0],NPZ[1],NPZ[2],out)
-                else:
-                    logging.log(21,"Single Mode is %s",args.SingleMode)
-                    logging.log(21,"Correcting for Non-Allelic Matrix")
-                    Non_Allelic_Single_Correcting(npz = NPZ[0],
-                                                  out = out,
-                                                  Mode = args.cross,
-                                                  save_sparse = save_sparse)
-            
-            logging.log(21,'Correcting Done!')
-            
-            
+                HaplotypeMatrixConstruction(OutPath = OutPath,
+                                            RepPath = ReplicatePath,
+                                            genomeSize = genomeSize,
+                                            wholeRes = wholeRes,
+                                            localRes = localRes,
+                                            Imputation_ratio = ImputationRatio,
+                                            Imputation_min = ImputationMin,
+                                            Imputation_region = ImputationRegion,
+                                            chroms = chroms)
+       
 if __name__ == '__main__':
     run()
