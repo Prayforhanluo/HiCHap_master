@@ -29,7 +29,10 @@ setup(name = 'HiCHap',
       long_description = read('README.rst'),
       long_description_content_type = 'text/x-rst',
       scripts = glob.glob('scripts/*'),
-      packages = find_packages()
+      packages = find_packages(),
+      classifiers = [
+          'License :: OSI Approved :: GNU General Public License v3 (GPLv3)'
+      ]
       )
       
 
