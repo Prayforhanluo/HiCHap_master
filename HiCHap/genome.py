@@ -10,7 +10,7 @@ import Bio
 import Bio.Restriction
 Bio.Restriction         #shut up the editor warning
 
-from HapHiC.fastqPlus import Enzyme_Handle
+from HiCHap.fastqPlus import Enzyme_Handle
 
 log = logging.getLogger(__name__)
 
