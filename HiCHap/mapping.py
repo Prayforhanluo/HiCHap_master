@@ -64,9 +64,9 @@ def WS_sub_mapping(bowtieIndex, bowtiePath, threads, fq, OutPath, task_count):
         id of sub-mapping task
     """
     
-    fq_predix = os.path.join(OutPath,os.path.split(fq)[-1].split('.')[0])
+    fq_prefix = os.path.split(fq)[-1].split('.')[0]
     genome_prefix = os.path.split(bowtieIndex)[-1]
-    out_sam_name = fq_predix + '_' + genome_prefix + '.sam'
+    out_sam_name = fq_prefix + '_' + genome_prefix + '.sam'
     out_sam_file = os.path.join(OutPath,out_sam_name)
     out_bam_file = out_sam_file.rstrip('.sam') + '.bam'
     prefix = out_sam_file.rstrip('.sam')
@@ -87,7 +87,7 @@ def WS_sub_mapping(bowtieIndex, bowtiePath, threads, fq, OutPath, task_count):
 #                                    stderr=subprocess.PIPE,bufsize=-1)
 #    samtools_res.communicate()
     
-    log.log(21,'%s mapping to %s done! count_id : %d ',fq_predix,genome_prefix,task_count)
+    log.log(21,'%s mapping to %s done! count_id : %d ',fq_prefix,genome_prefix,task_count)
     
 
 
