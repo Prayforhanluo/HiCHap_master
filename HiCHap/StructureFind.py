@@ -44,47 +44,54 @@ class StructureFind(object):
     The results of Interaction Matrix will be saved as cooler format.
         
     
-    :: code-block:: python
-    
-        >>>         #Compartment calculate
-        >>> Test_PC = StructureFind(RawNPZ = 'Merged_Reps_One_Mate_Paternal.npz',
-                                    CorNPZ = 'Correct_Merged_Reps_One_Mate_Paternal.npz',
-                                    Res = 200000)
-        
-        >>> Test_PC.run_Compartment(OutPath = 'Maternal_PC')
-        
-        >>>         #TADs calculate
-        >>> Test_Doamin = StructureFind(RawNPZ = 'Merged_Reps_One_Mate_Paternal.npz',
-                                        CorNPZ = 'Correct_Merged_Reps_One_Mate_Paternal.npz',
-                                        Res = 40000)
-        
-        >>> Test_Domain.run_TADs(OutPath = 'Maternal_Domains',
-                                 state_num = 3,
-                                 window = 600000)
-        
-        >>>        #Loops calling
-                    (Loop calling need a key parameters Allelic 
-                    if True, Calling Allelic loops from haplotype Matrix
-                    if False, Calling loops from non-haplotype Matrix)
-        
-        >>> Test_Raw_loops = StructureFind(RawNPZ = 'Merged_Reps_Local_Chromosome_Matrix.npz',
-                                           CorNPZ = 'Correct_Merged_Reps_Local_Chromosome_Matrix.npz',
-                                           Res = 10000)
-        
-        >>> Test_Raw_loops.run_Loops(OutPath = 'Raw', Allelic = False)
-        
-        >>> Test_Maternal_loops = StructureFind(RawNPZ = 'Merged_Reps_One_Mate_Maternal.npz',
-                                                CorNPZ = 'Correct_Merged_Reps_One_Mate_Maternal.npz',
-                                                Res = 40000)
-        
-        >>> Test_Maternal_loops.run_Loops(OutPath = 'Maternal', Allelic = True)
-    
     
     ---------------------------------------------------------------------------------------------
     
     More API information can be found in methods.
     
+    code::block 
     
+    	>>> from HiCHap.StructureFind import StructureFind
+	
+	>>> #============= Compartment==============
+	>>> ## For traditional Hi-C
+	>>> GM_T_PC = StructureFind(cooler_fil = 'Merged_Traditional_Multi.cool', Res = 500000, Allelic = False)
+	>>> GM_T_PC.run_Compartment(OutPath = 'Traditonal_PC', plot = True, MS = 'IF', SA = False)
+	 
+	>>> ## For haplotype-resolved Hi-C 
+	>>> GM_M_PC = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 500000, Allelic = 'Maternal')
+	>>> GM_M_PC.run_Compartment(OutPath = 'Maternal_PC', plot = True, MS = 'IF', SA = False)
+	
+	>>> GM_P_PC = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 500000, Allelic = 'Paternal')
+	>>> GM_P_PC.run_Compartment(OutPath = 'Paternal_PC', plot = True, MS = 'IF', SA = False)
+
+	
+	>>> #============= TADs calling=============
+	>>> ## For traditional Hi-C 
+	>>> GM_tads_T = StructureFind(cooler_fil = 'Merged_Traditional_Multi.cool', Res = 40000, Allelic = False)
+	>>> GM_tads_T.run_TADs(OutPath = 'Traditional_TADs', plot = True)
+	>>>
+	>>> ## For haplotype-resolved Hi-C
+	>>> GM_tads_M = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 40000, Allelic = 'Maternal')
+	>>> GM_tads_M.run_TADs(OutPath = 'Maternal_TADs', plot = True)
+
+	>>> GM_tads_P = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 40000, Allelic = 'Paternal')
+	>>> GM_tads_P.run_TADs(OutPath = 'Paternal_TADs', plot = True)
+	
+
+	>>> #============= Loops calling=============
+	>>> ## For traditonal Hi-C
+	>>> GM_Loop_T = StructureFind(cooler_fil = 'Merged_Traditional_Multi.cool', Res = 40000, Allelic = False)
+	>>> GM_Loop_T.run_Loops(OutPath = 'Traditional_Loops', plot = True)
+	
+	>>> ## For haplotype-resolved Hi-C
+	>>> GM_Loop_M = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 40000, Allelic = 'Maternal')
+	>>> GM_Loop_M.run_Loops(OutPath = 'Maternal_Loops', plot = True)
+	
+	>>> GM_Loop_P = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 40000, Allelic = 'Paternal')
+	>>> GM_Loop_P.run_Loops(OutPath = 'Paternal_Loops', plot = True)
+	
+ 
     
     """
     def __init__(self, cooler_fil, Res, Allelic, GapFile = None, 
@@ -615,7 +622,7 @@ class StructureFind(object):
             the min TAD size
             
         """
-        ratio = 0.05
+        ratio = 0
         N = M.shape[0]
         col_distribution = (np.array(M) != 0).sum(axis = 0) / float(N)
         gap_flag = np.where(col_distribution < ratio, True, False)
