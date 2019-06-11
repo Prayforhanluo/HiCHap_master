@@ -25,11 +25,16 @@ setup(name = 'HiCHap',
       author = HiCHap.__author__,
       url = 'https://github.com/Prayforhanluo/HiCHap_master',
       author_email = 'hluo_lc@outlook.com',
-      description = 'A Software to Explore Haplotype 3D Structure of Chromatin.',
+      description = 'A Library of Hi-C data processing, bias correction and structural analysis for phased haplotype',
       long_description = read('README.rst'),
       long_description_content_type = 'text/x-rst',
       scripts = glob.glob('scripts/*'),
-      packages = find_packages()
+      packages = find_packages(),
+      classifiers = [
+        'Programming Language :: Python',
+        'Intended Audience :: Science/Research',
+        'Topic :: Scientific/Engineering :: Bio-Informatics',
+        'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)']
       )
       
 
