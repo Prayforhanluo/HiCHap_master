@@ -15,7 +15,7 @@ from cooler import create_cooler
 import os, tempfile, logging, math, copy
 import pandas as pd
 import numpy as np
-import subprocess
+import subprocess, gc, time
 
 log = logging.getLogger(__name__)
 
@@ -917,8 +917,8 @@ def Gap_defined(Matrix):
     Cover = Coverage_M(Matrix)
     
     threshold = np.percentile(Cover[np.nonzero(Cover)],25)
-    if threshold > 0.3:
-        threshold = 0.3
+    if threshold > 0.2:
+        threshold = 0.2
     gap = []
     for index,i in enumerate(Matrix):
         tmp = 1 - (i == 0).sum() / float(len(i))
@@ -1163,7 +1163,7 @@ def HaplotypeMatrixBuilding(OutPath, BedPath, genomeSize, wholeRes, localRes,
     instream.close()
     
     ## =================Save Paternal-Paternal contact data ==================
-    P_P_fil = [i for i in files if 'M_M.bed' in i]
+    P_P_fil = [i for i in files if 'P_P.bed' in i]
     P_P_cmd = Merge_beds(P_P_fil)
     pread = subprocess.Popen(P_P_cmd, stdout=subprocess.PIPE, bufsize=-1)
     instream = pread.stdout
@@ -1720,6 +1720,9 @@ def HaplotypeMatrixConstruction(OutPath, RepPath, genomeSize, wholeRes, localRes
                     All_Data['Imputated_Local'][res][k] += DataSets['Imputated_Local'][res][k]
                     
     del DataSets
+    gc.collect()
+    time.sleep(10)
+    
     
     print "Merging the Replicates..."
     log.log(21, "Merging the Replicates ...")
