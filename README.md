@@ -222,7 +222,7 @@ For Hi-C haplotype pipeline:
 
 Except for the inputs, the other parameters are same as **GlobalMapping** ..
 
-###bamProcess
+### bamProcess
 Integrate all the mapping information.
 
 For traditional Hi-C pipeline, the fragment parameter(-f) only have one fragment-location file and the SNP parameter should be default (None). For example:
