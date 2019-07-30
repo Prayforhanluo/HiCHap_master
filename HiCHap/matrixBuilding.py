@@ -956,7 +956,7 @@ def Trans2symmetry(Matrix,gap):
       
     # Gap <-> NonGap  &   Gap <-> Gap
     for i in gap:
-        for j in gap:
+        for j in range(N):
             if i == j:
                 New_Matrix[i][j] = Matrix[i][j]
             else:
@@ -964,9 +964,10 @@ def Trans2symmetry(Matrix,gap):
                 New_Matrix[i][j] = value
                 New_Matrix[j][i] = value
 
+
     # NonGap <-> NonGap    
     for i in Non_Gap:
-        for j in Non_Gap:
+        for j in range(N):
             if i == j:
                 New_Matrix[i][j] = Matrix[i][j]
             else:
