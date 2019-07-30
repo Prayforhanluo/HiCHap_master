@@ -963,9 +963,6 @@ def Trans2symmetry(Matrix,gap):
                 value = max(Matrix[i][j], Matrix[j][i])
                 New_Matrix[i][j] = value
                 New_Matrix[j][i] = value
-        for j in Non_Gap:
-            New_Matrix[i][j] = Matrix[j][i]
-            New_Matrix[j][i] = Matrix[j][i]
 
     # NonGap <-> NonGap    
     for i in Non_Gap:
