@@ -435,8 +435,8 @@ Use the API like:
 	>>> from HiCHap.AllelicSpecificity import CompartmentAllelicSpecificity
 	
 	>>> Allel_PC = CompartmentAllelicSpecificity(Maternal_PC = 'GM12878_Maternal_PC.txt',
-	                                            Paternal_PC = 'GM12878_Paternal_PC.txt',
-												Res = 500000)
+	                                             Paternal_PC = 'GM12878_Paternal_PC.txt',
+						     Res = 500000)
 	
 	>>> Allel_PC.Running('Output.txt')
 
@@ -478,8 +478,8 @@ Use the API like:
 	>>> from HiCHap.AllelicSpecificity import BoundaryAllelicSpecificity
 	
 	>>> Allel_Boundary = BoundaryAllelicSpecificity(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool',
-													Boundary_fil = 'Candidate_Boundary.txt',
-													Res = 40000, offset = 10)
+							Boundary_fil = 'Candidate_Boundary.txt',
+							Res = 40000, offset = 10)
 	
 	>>> Allel_Boundary.Running('OutPut.txt')
 
