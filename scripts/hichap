@@ -17,7 +17,7 @@ def getargs():
                                                  Try to get more helpful information by README.md file.""",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
-    parser.add_argument('-v', '--version', action = 'version', version = '%(prog)s 0.6.1',
+    parser.add_argument('-v', '--version', action = 'version', version = '%(prog)s 0.1.6',
                         help = 'Print version number and exit')
     
     ## All
@@ -141,8 +141,8 @@ def getargs():
                       will be mapped to both two genome.
                       bowtieIndex contains two parts Maternal and Paternal Index
                       bowtieIndex is ordered. first is Maternal, second is Paternal like:
-                      -i(--bowtieIndex) /public/home/genome/Maternal
-                      /pubilc/home/genome/Paternal''')
+                      -i(--bowtieIndex) /public/home/genome/Maternal/Maternal
+                      /pubilc/home/genome/Paternal/Paternal''')
                       
     HapM_IO.add_argument('-o','--out',default = None,
                       help = 'self-defined Output Folder')
@@ -402,8 +402,8 @@ def getargs():
     
     MatrixC.add_argument('-gs','--genomeSize',help = 'genomeSize file Path.')
     
-    MatrixC.add_argument('-wR','--wholeRes', nargs = '+', type = int, default = [5000000, 2000000],
-                         help = 'Genome-Wide Matrix Resolution. default : [5M, 2M], Unit: bp')
+    MatrixC.add_argument('-wR','--wholeRes', nargs = '+', type = int, default = None,
+                         help = 'Genome-Wide Matrix Resolution. default : None(Only Intra-Chromosome Matrix). Unit: bp')
     
     MatrixC.add_argument('-lR','--localRes', nargs = '+', type = int, default = [500000, 40000],
                          help = 'Intra-Chromosome Matrix Resolution. default : [500K, 40K], Unit : bp')
@@ -1070,6 +1070,8 @@ def run():
             genomeSize = args.genomeSize
             NonAllelic = args.NonAllelic
             wholeRes = args.wholeRes
+            if wholeRes == None:
+                wholeRes = []
             localRes = args.localRes
             ImputationRatio = args.ImputationRatio
             ImputationMin = args.ImputationMin
