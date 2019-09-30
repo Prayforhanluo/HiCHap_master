@@ -108,10 +108,10 @@ Try to get help information:
 There are several major functions available in HiCHap sub-commands.
 
 
-Subcommand | Description
------------|----------
-rebuildG |  Build Genome index, genome size and enzyme fragment locations
-rebuildF |  Chunk fastq files.
+| Subcommand | Description |
+| -----------|------------ |
+| rebuildG |  Build Genome index, genome size and enzyme fragment locations |
+| rebuildF |  Chunk fastq files.|
 GlobalMapping | Mapping the raw chunked reads to genome
 Rescue | Rescue the unmapped reads by cutting the Ligation site.
 ReMapping | Re-mapping the rescued reads to genome
@@ -359,11 +359,12 @@ Use the API like :
 	 
 	>>> ## For haplotype-resolved Hi-C 
 	>>> GM_M_PC = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 500000, Allelic = 'Maternal')
-	>>> GM_M_PC.run_Compartment(OutPath = 'Maternal_PC', plot = True, MS = 'IF', SA = False)
+	>>> GM_M_PC.run_Compartment(OutPath = 'Maternal_PC', plot = True, MS = 'IF', SA = False,
+								Tranditional_PC_file = 'Traditional_PC/Traditional_PC_Compartment_500K.txt')
 	
 	>>> GM_P_PC = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 500000, Allelic = 'Paternal')
-	>>> GM_P_PC.run_Compartment(OutPath = 'Paternal_PC', plot = True, MS = 'IF', SA = False)
-
+	>>> GM_P_PC.run_Compartment(OutPath = 'Paternal_PC', plot = True, MS = 'IF', SA = False,
+								Tranditional_PC_file = 'Traditional_PC/Traditional_PC_Compartment_500K.txt')
 	
 	>>> #============= TADs calling=============
 	>>> ## For traditional Hi-C 
@@ -377,7 +378,6 @@ Use the API like :
 	>>> GM_tads_P = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 40000, Allelic = 'Paternal')
 	>>> GM_tads_P.run_TADs(OutPath = 'Paternal_TADs', plot = True)
 	
-
 	>>> #============= Loops calling=============
 	>>> ## For traditonal Hi-C
 	>>> GM_Loop_T = StructureFind(cooler_fil = 'Merged_Traditional_Multi.cool', Res = 40000, Allelic = False)
@@ -390,8 +390,6 @@ Use the API like :
 	>>> GM_Loop_P = StructureFind(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool', Res = 40000, Allelic = 'Paternal')
 	>>> GM_Loop_P.run_Loops(OutPath = 'Paternal_Loops', plot = True)
 	
-	
-
 
 Notice that the most important parameter is **Allelic**, **False** for traditional Hi-C and **Maternal/Paternal** for Maternal/paternal.. 
 
@@ -413,6 +411,7 @@ You can read the source code in StuctureFind.py for more details.
 
 ### Allele-Specificity of Chromatin Structure 
 The calculation method of Allelic Specificity is integrated in the **AllelicSpecificity** module.
+
 
 #### Compartment Allele-Specificity calculation
 
@@ -455,9 +454,12 @@ The output file is similar to the input file. with the format as:
 
 #### Boundary Allele-Specificity calculation
 
+
 Using the Candidate boundaries as input. TXT file contains 3 columns format as 
 
-1) chromosome ID. 2) Maternal Boundary 3) Paternal Boundary
+1. chromosome ID. 
+2. Maternal Boundary 
+3. Paternal Boundary
 
 Each row indicates a pair of candidate boundary to calculate the allel-specificity. Maternal and Paternal boundary can be different (Same boundary  with a little translation.) We suggest the distance of translation should less than 3 bins.
 
@@ -497,8 +499,14 @@ The output file is similar to the input file. with the format as:
 
 Using the Candidate loops as input. TXT file contains 5 columns format as 
 
- 1)  chromosome ID. 2) Maternal loop loci 1. 3) Maternal loop loci 2. 4) Paternal loop loci 1. 5) Paternal loop loci 2
+ 1. chromosome ID. 
+ 2. Maternal loop loci 1. 
+ 3. Maternal loop loci 2. 
+ 4. Paternal loop loci 1. 
+ 5. Paternal loop loci 2
 
+like:
+	
 	$ less Candidate_Loop.txt
 
 		1       2320000         2560000         2320000         2560000
@@ -518,7 +526,9 @@ Use the API like:
 	>>> Allel_Loop.Running('OutPut.txt')
 
 
+
 The output file is similar to the input file. with the format as:
+
 
 1. chromosome ID
 2. Maternal loop loci 1
@@ -534,6 +544,7 @@ The output file is similar to the input file. with the format as:
 
 ### Examples of Allel-Specific Structure
 
+
 #### X-Chromosome-Inactivation
 
 ![](pictures/XCI.png)
@@ -541,3 +552,10 @@ The output file is similar to the input file. with the format as:
 #### Allel-Specific Boundary and Loop
 
 ![](pictures/Allel_Boundary_Loop.png)
+
+
+
+
+
+
+
