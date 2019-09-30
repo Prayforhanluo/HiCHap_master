@@ -520,8 +520,8 @@ Use the API like:
 	>>> from HiCHap.AllelicSpecificity import LoopAllelicSpecificity
 	
 	>>> Allel_Loop = LoopAllelicSpecificity(cooler_uri = 'Merged_Imputated_Haplotype_Multi.cool',
-											Loop_file = 'Candidate_Loop.txt',
-											Res = 40000)
+						Loop_file = 'Candidate_Loop.txt',
+						Res = 40000)
 
 	>>> Allel_Loop.Running('OutPut.txt')
 
