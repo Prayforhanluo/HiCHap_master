@@ -17,13 +17,12 @@
 5.  statsmodels
 6.  Scikit-Learn
 7.  xml
-8.  mirnylib
-9.  pysam
-10.  ghmm
-11.  Bio
-12.  bowtie2 (we used 2.2.9)
-13.  samtools (we used 1.5)
-14.  cooler
+8.  pysam
+9.  ghmm
+10.  Bio
+11.  bowtie2 (we used 2.2.9)
+12.  samtools (we used 1.5)
+13.  cooler
  
 Please use **conda** , **pip** or the source code to install them if necessary
 
