@@ -691,7 +691,8 @@ def TraditionalMatrixConstruction(OutPath, RepPath, genomeSize, wholeRes,
         replicate_cooler = ['{}::{}'.format(i,res) for i in Replicate_Cooler]
         cooler.merge_coolers(output_uri = merge_cooler,
                              input_uris = replicate_cooler,
-                             mergebuf = mergebuf)
+                             mergebuf = mergebuf,
+                             mode = 'a')
     print "    %s finished" % Merged_cooler
     log.log(21, "    %s finished" % Merged_cooler)
     
