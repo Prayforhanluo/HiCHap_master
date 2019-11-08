@@ -17,13 +17,12 @@
 5.  statsmodels
 6.  Scikit-Learn
 7.  xml
-8.  mirnylib
-9.  pysam
-10.  ghmm
-11.  Bio
-12.  bowtie2 (we used 2.2.9)
-13.  samtools (we used 1.5)
-14.  cooler
+8.  pysam
+9.  ghmm
+10.  Bio
+11.  bowtie2 (we used 2.2.9)
+12.  samtools (we used 1.5)
+13.  cooler
  
 Please use **conda** , **pip** or the source code to install them if necessary
 
@@ -435,8 +434,8 @@ Use the API like:
 	>>> from HiCHap.AllelicSpecificity import CompartmentAllelicSpecificity
 	
 	>>> Allel_PC = CompartmentAllelicSpecificity(Maternal_PC = 'GM12878_Maternal_PC.txt',
-	                                            Paternal_PC = 'GM12878_Paternal_PC.txt',
-												Res = 500000)
+	                                             Paternal_PC = 'GM12878_Paternal_PC.txt',
+						     Res = 500000)
 	
 	>>> Allel_PC.Running('Output.txt')
 
@@ -478,8 +477,8 @@ Use the API like:
 	>>> from HiCHap.AllelicSpecificity import BoundaryAllelicSpecificity
 	
 	>>> Allel_Boundary = BoundaryAllelicSpecificity(cooler_fil = 'Merged_Imputated_Haplotype_Multi.cool',
-													Boundary_fil = 'Candidate_Boundary.txt',
-													Res = 40000, offset = 10)
+							Boundary_fil = 'Candidate_Boundary.txt',
+							Res = 40000, offset = 10)
 	
 	>>> Allel_Boundary.Running('OutPut.txt')
 
@@ -520,8 +519,8 @@ Use the API like:
 	>>> from HiCHap.AllelicSpecificity import LoopAllelicSpecificity
 	
 	>>> Allel_Loop = LoopAllelicSpecificity(cooler_uri = 'Merged_Imputated_Haplotype_Multi.cool',
-											Loop_file = 'Candidate_Loop.txt',
-											Res = 40000)
+						Loop_file = 'Candidate_Loop.txt',
+						Res = 40000)
 
 	>>> Allel_Loop.Running('OutPut.txt')
 

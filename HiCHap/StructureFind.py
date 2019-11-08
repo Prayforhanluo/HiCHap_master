@@ -16,8 +16,8 @@ from scipy.stats import poisson
 from statsmodels.sandbox.stats.multicomp import multipletests
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LinearSegmentedColormap
-from itertools import  islice
 import matplotlib.pyplot as plt
+from itertools import  islice
 import os, math, random, ghmm, bisect
 import cooler, copy
 import numpy as np
@@ -370,7 +370,45 @@ class StructureFind(object):
         pc_selected = pca_components[select_k] * direction
         
         return pc_selected
+    
+    
+    def Loading_Tranditional_PC(self, fil):
+        """
+        """
+        PC_Dic = {}
+        with open(fil,'r') as f:
+            for line in f:
+                line = line.strip().split()
+                if line[0] not in PC_Dic.keys():
+                    PC_Dic[line[0]] = []
+                    PC_Dic[line[0]].append(line[-1])
+                else:
+                    PC_Dic[line[0]].append(line[-1])
         
+        for chro, v in PC_Dic.items():
+            v = np.array(v, dtype = float)
+            PC_Dic[chro] = v
+        
+        return PC_Dic
+    
+    
+    def Select_Allelic_PC(self, pca_components, Tranditional_PC, eps = 0.7):
+        """
+            Select the principal component by  supervised manner in Allelic matrix
+            
+        """
+        PCC = []
+        for pc in pca_components:
+            pcc = abs(np.corrcoef(pc, Tranditional_PC)[0][1])
+            PCC.append(pcc)
+        if np.max(PCC) < eps:
+            print "    PCC too low for this chromosome, check it if possible!"
+
+        index = np.argmax(PCC)
+    
+        return pca_components[index]
+     
+     
     def Refill_Gap(self, M1, M2, NonGap, dtype):
         """
             Refill zero value into Gap in OE Matrix and Correlation Matrix.
@@ -399,7 +437,7 @@ class StructureFind(object):
                 
         return Refilled_M
         
-    def Compartment(self, SA = False):
+    def Compartment(self, SA = False, Tranditional_PC_file = None):
         """
             Compute the Compartment Structure for each Chromosome
         """
@@ -428,23 +466,42 @@ class StructureFind(object):
         self.OE_Matrix_Dict = {}
         self.Compartment_Dict = {}
         
+        if self.Allelic != False:
+            Tranditional_PC = self.Loading_Tranditional_PC(Tranditional_PC_file)
+        
+        self.RawPCA = {}
         for chro in chroms:
             print "Chromosome %s start" % chro
             M = Matrix_Lib[chro]
+            self.RawPCA[chro] = []
             distance_bin, Gap, NonGap = self.Distance_Decay(M=M, G_array=None)
             pca, Cor_M, OE_M = self.Get_PCA(distance_bin=distance_bin, M=M, NG_array=NonGap, SA = SA)
-            pc_select = self.Select_PC(Cor_matrix=Cor_M, pca_components=pca)
             
+            if self.Allelic == False:
+                pc_select = self.Select_PC(Cor_matrix=Cor_M, pca_components=pca)
+                Compartment_zeros = np.zeros((M.shape[0],), dtype = np.float)
+                Compartment_zeros[NonGap] = pc_select
+                self.Compartment_Dict[chro] = Compartment_zeros
+                
+            else:
+                for i in range(len(pca)):
+                    tmp = np.zeros((M.shape[0],), dtype = np.float)
+                    tmp[NonGap] = pca[i]
+                    self.RawPCA[chro].append(tmp.tolist())
+
+                self.RawPCA[chro] = np.array(self.RawPCA[chro])
+                Compartment_zeros = np.zeros((M.shape[0],), dtype = np.float)
+                tran_chro = chro[1:]
+                pc_select = self.Select_Allelic_PC(self.RawPCA[chro], Tranditional_PC[tran_chro])
+                Compartment_zeros[NonGap] = pc_select[NonGap]
+                self.Compartment_Dict[chro] = Compartment_zeros
+                
             OE_M = self.Refill_Gap(M, OE_M, NonGap, dtype = 'OE')
             Cor_M = self.Refill_Gap(M, Cor_M, NonGap, dtype = 'Cor')
-            
-            Compartment_zeros = np.zeros((M.shape[0],), dtype = np.float)
-            Compartment_zeros[NonGap] = pc_select
-            
-            self.Compartment_Dict[chro] = Compartment_zeros
+
             self.Cor_Martrix_Dict[chro] = Cor_M
             self.OE_Matrix_Dict[chro] = OE_M
-    
+   
 
     def OutPut_PC_To_txt(self, out):
         """
@@ -566,7 +623,8 @@ class StructureFind(object):
         pp.close()                    
         
         
-    def run_Compartment(self, OutPath, plot = True, MS = 'IF', SA = False):
+    def run_Compartment(self, OutPath, plot = True, MS = 'IF', 
+                        SA = False, Tranditional_PC_file = None):
         """
             Main function to Get Compartment
         
@@ -587,7 +645,7 @@ class StructureFind(object):
         fil = os.path.join(OutPath, prefix+'_Compartment_'+res+'.txt')
         pdf = os.path.join(OutPath, prefix+'_Compartment_'+MS+'_'+res+'.pdf')
         
-        self.Compartment(SA = SA)
+        self.Compartment(SA = SA, Tranditional_PC_file=Tranditional_PC_file)
         self.OutPut_PC_To_txt(fil)
         if plot:
             self.Plot_Compartment(pdf, MS)
