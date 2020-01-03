@@ -573,9 +573,9 @@ class aFiltering(object):
         
         #Mapping To the Same Position
         if M_C == P_C and abs(M_pos - P_pos) <= 5:
-            if M_SNPs > P_SNPs:
+            if M_SNPs > (2 * P_SNPs):
                 mark = 'M'
-            elif M_SNPs < P_SNPs:
+            elif (2 * M_SNPs) < P_SNPs:
                 mark = 'P'
             else:
                 mark = 'N'
@@ -584,7 +584,7 @@ class aFiltering(object):
         else:
             if (M_score - P_score) >= self.MAX_DIFF_SCORE and M_SNPs >= 2 * P_SNPs:
                 mark = 'M'
-            elif (P_score - M_score) >= self.MAX_DIFF_SCORE and P_SNPs >= 2 * P_SNPs:
+            elif (P_score - M_score) >= self.MAX_DIFF_SCORE and P_SNPs >= 2 * M_SNPs:
                 mark = 'P'
             else:
                 mark = 'N'
@@ -1035,12 +1035,9 @@ class aFiltering(object):
             -------------------
             
             if pos_M == pos_P,We first check the SNP matching sites counts. 
-                SNP_M > SNP_P  ---->  Maternal mate.
-                SNP_M < SNP_P  ---->  Paternal mate.
-                when SNP_M == SNP_P == 0,We check the difference score.
-                    check the difference of score.
-                    score_M - score_P > MAX_DIFF_SCORE ----> Maternal mate
-                    score_P - score_M > MAX_DIFF_SCORE ----> Paternal mate
+                SNP_M > 2 * SNP_P  ---->  Maternal mate.
+                2 * SNP_M < SNP_P  ---->  Paternal mate.
+
             
             if pos_M != pos_P, We first check the difference score. if difference 
             score satisfiy the MAX_DIFF_SCORE.We select the best score position is 
