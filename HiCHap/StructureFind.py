@@ -337,7 +337,7 @@ class StructureFind(object):
         Cor_matrix[np.isinf(Cor_matrix)] = 1
         pca = PCA(n_components = 3)
         pca.fit(Cor_matrix)
-        pca_components=np.vstack((pca.components_[0],pca.components_[1],pca.components_[2]))
+        pca_components=np.vstack(pca.components_) # pca_components=np.vstack((pca.components_[0],pca.components_[1],pca.components_[2]))
         
         return pca_components, Cor_matrix, OE_matrix
         
@@ -370,6 +370,57 @@ class StructureFind(object):
         pc_selected = pca_components[select_k] * direction
         
         return pc_selected
+    
+    def Select_PC_new(self, Cor_M, OE_M, pca):
+        def means_minus(matrix, pc, eps=1e-5):
+            lenth = len(pc)
+            locis = np.arange(lenth)
+            mask_a = pc > 0 
+            mask_b = pc < 0
+            locis_a = locis[mask_a]
+            locis_b = locis[mask_b]
+            if locis_a.shape[0] == 0 or locis_b.shape[0] == 0:
+                return 0
+            size_a = locis_a.max() - locis_a.min()
+            size_b = locis_b.max() - locis_b.min()
+            lens = max(locis_a.max(),locis_b.max()) - min(locis_a.min(),locis_b.min())
+            matrix_a = matrix[mask_a][:,mask_a]
+            matrix_b = matrix[mask_b][:,mask_b]
+            matrix_ab = matrix[mask_a][:,mask_b]
+            mask_a1 = matrix_a > -1
+            mask_a2 = matrix_a < 1 - eps
+            mask_b1 = matrix_b > -1
+            mask_b2 = matrix_b < 1 - eps
+            mask_ab1 = matrix_ab > -1
+            mask_ab2 = matrix_ab < 1
+            value_a = matrix_a[mask_a1 * mask_a2]
+            value_b = matrix_b[mask_b1 * mask_b2]
+            value_ab = matrix_ab[mask_ab1 * mask_ab2]
+            value_same = np.hstack((value_a,value_b))
+            if value_ab.shape[0] == 0 or value_ab.mean() == 0 or value_ab.mean() == -1 or size_a <= lens/2 or size_b <= lens/2:
+               return 0
+            return value_same.mean() - value_ab.mean()
+        def select_ab(oe, compartment):
+                matrix = oe
+                compt = compartment
+                mask_a = compt > 0
+                mask_b = compt < 0
+                matrix_a = matrix[mask_a][:,mask_a]
+                matrix_b = matrix[mask_b][:,mask_b]
+                values_a = sparse.coo_matrix(matrix_a).data.mean()
+                values_b = sparse.coo_matrix(matrix_b).data.mean()
+                if values_b > values_a :
+                    compartment = compartment.copy() * -1
+                return compartment
+        nums = 0
+        values = 0
+        for i in range(len(pca)):
+            minus = means_minus(Cor_M, pca[i])
+            if minus > values:
+                values = minus
+                nums = i    
+        pc_selected = select_ab(OE_M, pca[nums])
+        return pc_selected 
     
     
     def Loading_Tranditional_PC(self, fil):
@@ -478,7 +529,7 @@ class StructureFind(object):
             pca, Cor_M, OE_M = self.Get_PCA(distance_bin=distance_bin, M=M, NG_array=NonGap, SA = SA)
             
             if self.Allelic == False:
-                pc_select = self.Select_PC(Cor_matrix=Cor_M, pca_components=pca)
+                pc_select = self.Select_PC_new(Cor_M, OE_M[NonGap], pca) # pc_select = self.Select_PC(Cor_matrix=Cor_M, pca_components=pca)
                 Compartment_zeros = np.zeros((M.shape[0],), dtype = np.float)
                 Compartment_zeros[NonGap] = pc_select
                 self.Compartment_Dict[chro] = Compartment_zeros
@@ -2320,5 +2371,4 @@ class StructureFind(object):
             self.Plot_Loops(Pdf_out)
         
         print 'Done !'
-
- 
+        
