@@ -555,6 +555,7 @@ The output file is similar to the input file. with the format as:
 
 
 
-
+## Citation
+Luo, H., Li, X., Fu, H. et al. HiCHap: a package to correct and analyze the diploid Hi-C data. BMC Genomics 21, 746 (2020). https://doi.org/10.1186/s12864-020-07165-x
 
 
