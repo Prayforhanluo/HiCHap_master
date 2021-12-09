@@ -7,7 +7,9 @@
  [PyPI](https://pypi.org/project/HiCHap/) : (https://pypi.org/project/HiCHap/)
 
  [Github](https://github.com/Prayforhanluo/HiCHap_master) : (https://github.com/Prayforhanluo/HiCHap_master)
- 
+
+## Citation
+Luo, H., Li, X., Fu, H. et al. HiCHap: a package to correct and analyze the diploid Hi-C data. BMC Genomics 21, 746 (2020). https://doi.org/10.1186/s12864-020-07165-x
 
 ### Requirement
 1.  Python 2.7+
